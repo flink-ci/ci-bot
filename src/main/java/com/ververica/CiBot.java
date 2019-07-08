@@ -286,8 +286,8 @@ public class CiBot implements Runnable, AutoCloseable {
 
 				Build.Status lastStatus = getCommitState(okHttpClient, ciRepository, commitHash, token);
 				if (lastStatus == null) {
-					LOG.warn("Discarding CI branch {} because no build was triggered.", getCiBranchName(pullRequestID, commitHash));
-					deleteCiBranch(pullRequestID, commitHash);
+					LOG.warn("CI branch {} had no check attaced.", getCiBranchName(pullRequestID, commitHash));
+					pendingBuilds.add(new Build(pullRequestID, commitHash, Optional.empty()));
 				} else {
 					Build build = new Build(pullRequestID, commitHash, Optional.of(lastStatus));
 					if (lastStatus.state == Build.Status.State.PENDING) {
