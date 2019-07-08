@@ -258,6 +258,7 @@ public class CiBot implements Runnable, AutoCloseable {
 			for (Build build : requiredBuilds) {
 				mirrorPullRequest(build.pullRequestID, build.commitHash);
 				ciState.pendingBuilds.add(build);
+				Thread.sleep(5 * 1000);
 			}
 			LOG.info("Mirroring complete.");
 		}
@@ -309,6 +310,7 @@ public class CiBot implements Runnable, AutoCloseable {
 			LOG.info("Processing finished CI build for {}@{}.", finishedBuild.pullRequestID, finishedBuild.commitHash);
 			submitCiReport(finishedBuild);
 			deleteCiBranch(finishedBuild.pullRequestID, finishedBuild.commitHash);
+			Thread.sleep(5 * 1000);
 		}
 	}
 
