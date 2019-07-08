@@ -414,7 +414,6 @@ public class CiBot implements Runnable, AutoCloseable {
 			String rawJson = response.body().string();
 
 			ObjectMapper objectMapper = new ObjectMapper();
-			LOG.debug(rawJson);
 			JsonNode jsonNode = objectMapper.readTree(rawJson);
 			Iterator<JsonNode> checkJson = jsonNode.get("check_runs").iterator();
 
