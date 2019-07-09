@@ -38,6 +38,7 @@ import org.eclipse.jgit.transport.RefSpec;
 import org.eclipse.jgit.transport.URIish;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.kohsuke.github.GHBranch;
+import org.kohsuke.github.GHException;
 import org.kohsuke.github.GHIssueComment;
 import org.kohsuke.github.GHIssueState;
 import org.kohsuke.github.GHPullRequest;
@@ -222,6 +223,8 @@ public class CiBot implements Runnable, AutoCloseable {
 				} catch (TransportException te) {
 					// this may happen in case of a git timeout
 					LOG.error("Generic transport exception occurred.", te);
+				} catch (GHException ge) {
+					LOG.error("Generic github exception occurred.", ge);
 				}
 				Thread.sleep(pollingIntervalInSeconds * 1000);
 			}
