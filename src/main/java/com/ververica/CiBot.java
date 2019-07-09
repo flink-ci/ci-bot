@@ -434,38 +434,45 @@ public class CiBot implements Runnable, AutoCloseable {
 				.build()).execute()) {
 			String rawJson = response.body().string();
 
-			ObjectMapper objectMapper = new ObjectMapper();
-			JsonNode jsonNode = objectMapper.readTree(rawJson);
-			Iterator<JsonNode> checkJson = jsonNode.get("check_runs").iterator();
+			try {
+				ObjectMapper objectMapper = new ObjectMapper();
+				JsonNode jsonNode = objectMapper.readTree(rawJson);
+				Iterator<JsonNode> checkJson = jsonNode.get("check_runs").iterator();
 
-			if (checkJson.hasNext()) {
-				JsonNode next = checkJson.next();
+				if (checkJson.hasNext()) {
+					JsonNode next = checkJson.next();
 
-				final Build.Status.State state;
-				final GHStatus ghStatus = GHStatus.valueOf(next.get("status").asText().toUpperCase());
-				switch (ghStatus) {
-					case COMPLETED:
-						final GHConclusion ghConclusion = GHConclusion.valueOf(next.get("conclusion").asText().toUpperCase());
-						switch (ghConclusion) {
-							case SUCCESS:
-								state = Build.Status.State.SUCCESS;
-								break;
-							case CANCELLED:
-								state = Build.Status.State.CANCELED;
-								break;
-							default:
-								state = Build.Status.State.FAILURE;
-								break;
-						}
-						break;
-					default:
-						state = Build.Status.State.PENDING;
-						break;
+					final Build.Status.State state;
+					final GHStatus ghStatus = GHStatus.valueOf(next.get("status").asText().toUpperCase());
+					LOG.debug("GHStatus={}", ghStatus);
+					switch (ghStatus) {
+						case COMPLETED:
+							final GHConclusion ghConclusion = GHConclusion.valueOf(next.get("conclusion").asText().toUpperCase());
+							LOG.debug("GHConclusion={}", ghStatus);
+							switch (ghConclusion) {
+								case SUCCESS:
+									state = Build.Status.State.SUCCESS;
+									break;
+								case CANCELLED:
+									state = Build.Status.State.CANCELED;
+									break;
+								default:
+									state = Build.Status.State.FAILURE;
+									break;
+							}
+							break;
+						default:
+							state = Build.Status.State.PENDING;
+							break;
+					}
+					String externalUrl = next.get("details_url").asText();
+					return new Build.Status(state, externalUrl);
+				} else {
+					return null;
 				}
-				String externalUrl = next.get("details_url").asText();
-				return new Build.Status(state, externalUrl);
-			} else {
-				return null;
+			} catch (Exception e) {
+				LOG.debug("Raw Check JSON: {}.", rawJson);
+				throw e;
 			}
 		} catch (Exception e) {
 			// super janky but don't bother handling this in a better way
