@@ -29,8 +29,10 @@ import org.apache.commons.io.FileUtils;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.TransportException;
+import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.lib.TextProgressMonitor;
+import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.transport.RefSpec;
 import org.eclipse.jgit.transport.URIish;
@@ -256,7 +258,7 @@ public class CiBot implements Runnable, AutoCloseable {
 
 		if (!requiredBuilds.isEmpty()) {
 			for (Build build : requiredBuilds) {
-				mirrorPullRequest(build.pullRequestID, build.commitHash);
+				mirrorPullRequest(build.pullRequestID);
 				ciState.pendingBuilds.add(build);
 				Thread.sleep(5 * 1000);
 			}
@@ -368,14 +370,33 @@ public class CiBot implements Runnable, AutoCloseable {
 		return new ObservedState(pullRequestsRequiringBuild);
 	}
 
-	private void mirrorPullRequest(long pullRequestID, String commitHash) throws Exception {
-		LOG.info("Mirroring PullRequest {}@{}.", pullRequestID, commitHash);
+	private void mirrorPullRequest(long pullRequestID) throws Exception {
+		LOG.info("Mirroring PullRequest {}.", pullRequestID);
 		LOG.info("Fetching PullRequest {}.", pullRequestID);
 		git.fetch()
 				.setRemote(REMOTE_NAME_OBSERVED_REPOSITORY)
 				.setCheckFetchedObjects(true)
 				.setRefSpecs(new RefSpec("refs/pull/" + pullRequestID + "/head:" + pullRequestID))
 				.call();
+
+		// the PR may have been updated in between the state fetch and this point
+		// determine actual HEAD commit
+		ObjectId resolve = git.getRepository().resolve(String.valueOf(pullRequestID));
+		Iterable<RevCommit> call = git.log()
+				.add(resolve)
+				.call();
+
+		String commitHash = null;
+		for (Iterator<RevCommit> iterator = call.iterator(); iterator.hasNext(); ) {
+			RevCommit revCommit = iterator.next();
+			commitHash = revCommit.getName();
+			break;
+		}
+		LOG.debug("Using commitHash {} for PR {}.", commitHash, pullRequestID);
+
+		if (commitHash == null) {
+			throw new IllegalStateException("log() returned no commits for PR " + pullRequestID + ".");
+		}
 
 		LOG.info("Pushing PullRequest {}.", pullRequestID);
 		git.push()
