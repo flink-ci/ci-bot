@@ -291,7 +291,7 @@ public class CiBot implements Runnable, AutoCloseable {
 	}
 
 	private CIState fetchCiState() throws Exception {
-		LOG.info(String.format("Retrieving CI repository state (%s).", ciRepository));
+		LOG.info("Retrieving CI repository state ({}).", ciRepository);
 
 		final Map<String, GHBranch> branches = gitHub.getRepository(ciRepository).getBranches();
 
@@ -391,7 +391,7 @@ public class CiBot implements Runnable, AutoCloseable {
 
 	private void deleteCiBranches(List<Build> finishedBuilds) throws Exception {
 		for (Build finishedBuild : finishedBuilds) {
-			LOG.info(String.format("Deleting CI branch for %s@%s.", finishedBuild.pullRequestID, finishedBuild.commitHash));
+			LOG.info("Deleting CI branch for {}@{}.", finishedBuild.pullRequestID, finishedBuild.commitHash);
 			git.push()
 					.setRefSpecs(new RefSpec(":refs/heads/" + getCiBranchName(finishedBuild.pullRequestID, finishedBuild.commitHash)))
 					.setRemote(REMOTE_NAME_CI_REPOSITORY)
