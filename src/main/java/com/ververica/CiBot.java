@@ -201,7 +201,8 @@ public class CiBot implements Runnable, AutoCloseable {
 	private static GitHub setupGitHub(String token, OkHttpClient client) throws IOException {
 		LOG.info("Setting up GitHub client.");
 
-		return GitHubBuilder.fromEnvironment().withOAuthToken(token)
+		return GitHubBuilder.fromEnvironment()
+				.withOAuthToken(token)
 				.withConnector(new OkHttp3Connector(new OkUrlFactory(client)))
 				.build();
 	}
