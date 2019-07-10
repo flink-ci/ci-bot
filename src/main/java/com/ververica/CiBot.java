@@ -302,6 +302,7 @@ public class CiBot implements Runnable, AutoCloseable {
 					}
 				}
 			}
+			Thread.sleep(5 * 1000);
 		}
 
 		final CIState ciState = new CIState(pendingBuilds, finishedBuilds);
