@@ -27,7 +27,6 @@ import okhttp3.Request;
 import okhttp3.Response;
 import org.apache.commons.io.FileUtils;
 import org.eclipse.jgit.api.Git;
-import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.TransportException;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Repository;
@@ -64,6 +63,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -72,6 +72,7 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * A bot that mirrors pull requests opened against one repository (so called "observed repository") to branches in
@@ -90,10 +91,21 @@ public class CiBot implements Runnable, AutoCloseable {
 
 	private static final String REGEX_GROUP_PULL_REQUEST_ID = "PullRequestID";
 	private static final String REGEX_GROUP_COMMIT_HASH = "CommitHash";
+	private static final String REGEX_GROUP_BUILD_STATUS = "BuildStatus";
+	private static final String REGEX_GROUP_BUILD_URL = "URL";
 	private static final Pattern REGEX_PATTERN_CI_BRANCH = Pattern.compile(
 			"ci_(?<" + REGEX_GROUP_PULL_REQUEST_ID + ">[0-9]+)_(?<" + REGEX_GROUP_COMMIT_HASH + ">[0-9a-f]+)", Pattern.DOTALL);
-	private static final Pattern REGEX_PATTERN_BOT_REPORT_MESSAGE = Pattern.compile(
-			"CI report for commit (?<" + REGEX_GROUP_COMMIT_HASH + ">[0-9a-f]{5,40}).*", Pattern.DOTALL);
+
+	private static final String TEMPLATE_MESSAGE = "" +
+			"## CI report:\n" +
+			"\n" +
+			"%s";
+	private static final String TEMPLATE_MESSAGE_LINE = "* %s : %s [Build](%s)\n";
+
+	private static final Pattern REGEX_PATTERN_CI_REPORT_LINES = Pattern.compile(String.format(escapeRegex(TEMPLATE_MESSAGE_LINE),
+			"(?<" + REGEX_GROUP_COMMIT_HASH + ">[0-9a-f]+)",
+			"(?<" + REGEX_GROUP_BUILD_STATUS + ">[A-Z]+)",
+			"(?<" + REGEX_GROUP_BUILD_URL + ">.+)"));
 
 	private final String observedRepository;
 	private final String ciRepository;
@@ -252,7 +264,8 @@ public class CiBot implements Runnable, AutoCloseable {
 
 	private void tick(Date lastUpdateTime) throws Exception {
 		final CIState ciState = fetchCiState();
-		processFinishedCiBuilds(ciState.finishedBuilds);
+		updateCiReports(ciState);
+		deleteCiBranches(ciState.finishedBuilds);
 
 		final ObservedState observedRepositoryState = fetchGithubState(lastUpdateTime);
 
@@ -311,40 +324,83 @@ public class CiBot implements Runnable, AutoCloseable {
 		return ciState;
 	}
 
-	private void processFinishedCiBuilds(List<Build> finishedBuilds) throws Exception {
-		LOG.info("Processing finished CI builds.");
+	private void updateCiReports(CIState ciState) throws Exception {
+		Map<Integer, List<Build>> updatesPerPullRequest = Stream.concat(ciState.pendingBuilds.stream(), ciState.finishedBuilds.stream())
+				.filter(build -> build.status.isPresent())
+				.collect(Collectors.groupingBy(build -> build.pullRequestID));
+
+		for (Map.Entry<Integer, List<Build>> updates : updatesPerPullRequest.entrySet()) {
+			updateCiReport(updates.getKey(), updates.getValue());
+		}
+	}
+
+	private void updateCiReport(int pullRequestID, List<Build> builds) throws IOException {
+		Map<String, String> reportsPerCommit = new LinkedHashMap<>();
+		for (Build build : builds) {
+			Build.Status status = build.status.get();
+			String commitHash = build.commitHash;
+			reportsPerCommit.put(commitHash, String.format(TEMPLATE_MESSAGE_LINE, commitHash, status.state, status.externalUrl));
+		}
+
+		Optional<GHIssueComment> ciReport = fetchCiReport(pullRequestID);
+
+		if (ciReport.isPresent()) {
+			GHIssueComment ghIssueComment = ciReport.get();
+
+			Map<String, String> existingReportsPerCommit = new LinkedHashMap<>();
+
+			Matcher matcher = REGEX_PATTERN_CI_REPORT_LINES.matcher(ghIssueComment.getBody());
+			while (matcher.find()) {
+				existingReportsPerCommit.put(matcher.group(REGEX_GROUP_COMMIT_HASH), matcher.group(0));
+			}
+
+			existingReportsPerCommit.putAll(reportsPerCommit);
+
+			String comment = String.format(TEMPLATE_MESSAGE, String.join("", existingReportsPerCommit.values()));
+
+			LOG.info("Updating CI report for pull request {}.", pullRequestID);
+			ghIssueComment.update(comment);
+		} else {
+			String comment = String.format(TEMPLATE_MESSAGE, String.join("", reportsPerCommit.values()));
+			LOG.info("Submitting new CI report for pull request {}.", pullRequestID);
+			submitComment(pullRequestID, comment);
+		}
+	}
+
+	private Optional<GHIssueComment> fetchCiReport(int pullRequestID) throws IOException {
+		LOG.info("Retrieving CI report for pull request {}.", pullRequestID);
+		final GHRepository observedGitHubRepository = gitHub.getRepository(this.observedRepository);
+		final GHPullRequest pullRequest = observedGitHubRepository.getPullRequest(pullRequestID);
+
+		for (GHIssueComment listReviewComment : pullRequest.getComments()) {
+			if (listReviewComment.getUser().getLogin().equals(username)) {
+				Matcher messageMatcher = REGEX_PATTERN_CI_REPORT_LINES.matcher(listReviewComment.getBody());
+				if (messageMatcher.find()) {
+					return Optional.of(listReviewComment);
+				}
+			}
+		}
+		return Optional.empty();
+	}
+
+	private void submitComment(int pullRequestID, String comment) throws IOException {
+		GHRepository repository = gitHub.getRepository(observedRepository);
+		GHPullRequest pullRequest = repository.getPullRequest(pullRequestID);
+		pullRequest.comment(comment);
+	}
+
+	private void deleteCiBranches(List<Build> finishedBuilds) throws Exception {
 		for (Build finishedBuild : finishedBuilds) {
-			LOG.info("Processing finished CI build for {}@{}.", finishedBuild.pullRequestID, finishedBuild.commitHash);
-			submitCiReport(finishedBuild);
-			deleteCiBranch(finishedBuild.pullRequestID, finishedBuild.commitHash);
+			LOG.info(String.format("Deleting CI branch for %s@%s.", finishedBuild.pullRequestID, finishedBuild.commitHash));
+			git.push()
+					.setRefSpecs(new RefSpec(":refs/heads/" + getCiBranchName(finishedBuild.pullRequestID, finishedBuild.commitHash)))
+					.setRemote(REMOTE_NAME_CI_REPOSITORY)
+					.setCredentialsProvider(new UsernamePasswordCredentialsProvider(token, ""))
+					.setForce(true)
+					.call()
+					.forEach(pushResult -> LOG.debug(pushResult.getRemoteUpdates().toString()));
 			Thread.sleep(5 * 1000);
 		}
-	}
-
-	private void submitCiReport(Build build) throws IOException {
-		if (!build.status.isPresent()) {
-			throw new IllegalStateException("Invalid state. Finished build without attached commit status.");
-		}
-
-		GHRepository repository = gitHub.getRepository(observedRepository);
-		GHPullRequest pullRequest = repository.getPullRequest(build.pullRequestID);
-		Build.Status ghCommitStatus = build.status.get();
-		pullRequest.comment(
-				String.format("CI report for commit %s: %s [Build](%s)",
-						build.commitHash,
-						ghCommitStatus.state.name(),
-						ghCommitStatus.externalUrl));
-	}
-
-	private void deleteCiBranch(int pullRequestID, String commitHash) throws GitAPIException {
-		LOG.info(String.format("Deleting CI branch for %s@%s.", pullRequestID, commitHash));
-		git.push()
-				.setRefSpecs(new RefSpec(":refs/heads/" + getCiBranchName(pullRequestID, commitHash)))
-				.setRemote(REMOTE_NAME_CI_REPOSITORY)
-				.setCredentialsProvider(new UsernamePasswordCredentialsProvider(token, ""))
-				.setForce(true)
-				.call()
-				.forEach(pushResult -> LOG.debug(pushResult.getRemoteUpdates().toString()));
 	}
 
 	private ObservedState fetchGithubState(Date lastUpdatedAtCutoff) throws IOException {
@@ -359,8 +415,8 @@ public class CiBot implements Runnable, AutoCloseable {
 				final Collection<String> verifiedCommitHashes = new ArrayList<>();
 				for (GHIssueComment listReviewComment : pullRequest.getComments()) {
 					if (listReviewComment.getUser().getLogin().equals(username)) {
-						Matcher messageMatcher = REGEX_PATTERN_BOT_REPORT_MESSAGE.matcher(listReviewComment.getBody());
-						if (messageMatcher.matches()) {
+						Matcher messageMatcher = REGEX_PATTERN_CI_REPORT_LINES.matcher(listReviewComment.getBody());
+						while (messageMatcher.find()) {
 							String commitHash = messageMatcher.group(REGEX_GROUP_COMMIT_HASH);
 							verifiedCommitHashes.add(commitHash);
 						}
@@ -493,6 +549,16 @@ public class CiBot implements Runnable, AutoCloseable {
 
 	private static String getGitHubURL(String repository) {
 		return "https://github.com/" + repository + ".git";
+	}
+
+	private static String escapeRegex(String format) {
+		return format
+				.replaceAll("\\[", "\\\\[")
+				.replaceAll("\\(", "\\\\(")
+				.replaceAll("\\)", "\\\\)")
+				.replaceAll("\\*", "\\\\*")
+				// line-endings are standardized in GitHub comments
+				.replaceAll("\n", "(\\\\r\\\\n|\\\\n|\\\\r)");
 	}
 
 	private static class ObservedState {
