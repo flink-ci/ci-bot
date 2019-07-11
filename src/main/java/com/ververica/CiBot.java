@@ -278,7 +278,6 @@ public class CiBot implements Runnable, AutoCloseable {
 		if (!requiredBuilds.isEmpty()) {
 			for (Build build : requiredBuilds) {
 				mirrorPullRequest(build.pullRequestID);
-				ciState.pendingBuilds.add(build);
 				Thread.sleep(DELAY_MILLI_SECONDS);
 			}
 			LOG.info("Mirroring complete.");
