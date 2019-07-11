@@ -270,18 +270,9 @@ public class CiBot implements Runnable, AutoCloseable {
 		deleteCiBranches(ciState.finishedBuilds);
 
 		final ObservedState observedRepositoryState = fetchGithubState(lastUpdateTime);
-
 		final List<Build> requiredBuilds = resolveStates(ciState, observedRepositoryState);
-
 		logRequiredBuilds(requiredBuilds);
-
-		if (!requiredBuilds.isEmpty()) {
-			for (Build build : requiredBuilds) {
-				mirrorPullRequest(build.pullRequestID);
-				Thread.sleep(DELAY_MILLI_SECONDS);
-			}
-			LOG.info("Mirroring complete.");
-		}
+		mirrorPullRequests(requiredBuilds);
 	}
 
 	private static List<Build> resolveStates(CIState ciState, ObservedState observedState) {
@@ -430,6 +421,16 @@ public class CiBot implements Runnable, AutoCloseable {
 		}
 
 		return new ObservedState(pullRequestsRequiringBuild);
+	}
+
+	private void mirrorPullRequests(List<Build> builds) throws Exception {
+		if (!builds.isEmpty()) {
+			for (Build build : builds) {
+				mirrorPullRequest(build.pullRequestID);
+				Thread.sleep(DELAY_MILLI_SECONDS);
+			}
+			LOG.info("Mirroring complete.");
+		}
 	}
 
 	private void mirrorPullRequest(long pullRequestID) throws Exception {
