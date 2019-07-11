@@ -114,6 +114,8 @@ public class CiBot implements Runnable, AutoCloseable {
 	private final int pollingIntervalInSeconds;
 	private final int backlogHours;
 
+	private final static int DELAY_MILLI_SECONDS = 5 * 1000;
+
 	private final Cache cache;
 	private final GitHub gitHub;
 	private final Git git;
@@ -277,7 +279,7 @@ public class CiBot implements Runnable, AutoCloseable {
 			for (Build build : requiredBuilds) {
 				mirrorPullRequest(build.pullRequestID);
 				ciState.pendingBuilds.add(build);
-				Thread.sleep(5 * 1000);
+				Thread.sleep(DELAY_MILLI_SECONDS);
 			}
 			LOG.info("Mirroring complete.");
 		}
@@ -316,7 +318,7 @@ public class CiBot implements Runnable, AutoCloseable {
 					}
 				}
 			}
-			Thread.sleep(5 * 1000);
+			Thread.sleep(DELAY_MILLI_SECONDS);
 		}
 
 		final CIState ciState = new CIState(pendingBuilds, finishedBuilds);
@@ -399,7 +401,7 @@ public class CiBot implements Runnable, AutoCloseable {
 					.setForce(true)
 					.call()
 					.forEach(pushResult -> LOG.debug(pushResult.getRemoteUpdates().toString()));
-			Thread.sleep(5 * 1000);
+			Thread.sleep(DELAY_MILLI_SECONDS);
 		}
 	}
 
