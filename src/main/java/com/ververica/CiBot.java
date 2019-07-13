@@ -20,6 +20,8 @@ package com.ververica;
 import com.beust.jcommander.JCommander;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ververica.git.GitActions;
+import com.ververica.git.GitActionsImpl;
 import okhttp3.Cache;
 import okhttp3.OkHttpClient;
 import okhttp3.OkUrlFactory;
@@ -27,16 +29,7 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 import org.apache.commons.io.FileUtils;
-import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.TransportException;
-import org.eclipse.jgit.lib.ObjectId;
-import org.eclipse.jgit.lib.Repository;
-import org.eclipse.jgit.lib.TextProgressMonitor;
-import org.eclipse.jgit.revwalk.RevCommit;
-import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
-import org.eclipse.jgit.transport.RefSpec;
-import org.eclipse.jgit.transport.URIish;
-import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.kohsuke.github.GHBranch;
 import org.kohsuke.github.GHException;
 import org.kohsuke.github.GHFileNotFoundException;
@@ -56,7 +49,6 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.SocketTimeoutException;
-import java.net.URL;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
@@ -87,7 +79,6 @@ public class CiBot implements Runnable, AutoCloseable {
 
 	private static final Path LOCAL_BASE_PATH = Paths.get(System.getProperty("java.io.tmpdir"), "ci_bot");
 	private static final File LOCAL_CACHE_PATH = LOCAL_BASE_PATH.resolve(Paths.get("cache_" + UUID.randomUUID())).toFile();
-	private static final File LOCAL_REPO_PATH = LOCAL_BASE_PATH.resolve(Paths.get("repo_" + UUID.randomUUID(), ".git")).toFile();
 
 	private static final String REMOTE_NAME_OBSERVED_REPOSITORY = "observed";
 	private static final String REMOTE_NAME_CI_REPOSITORY = "ci";
@@ -117,12 +108,12 @@ public class CiBot implements Runnable, AutoCloseable {
 	private final String travisToken;
 	private final int pollingIntervalInSeconds;
 	private final int backlogHours;
+	private final GitActions gitActions;
 
 	private final static int DELAY_MILLI_SECONDS = 5 * 1000;
 
 	private final Cache cache;
 	private final GitHub gitHub;
-	private final Git git;
 	private final OkHttpClient okHttpClient;
 
 	public static void main(String[] args) throws Exception {
@@ -147,12 +138,13 @@ public class CiBot implements Runnable, AutoCloseable {
 				arguments.githubToken,
 				arguments.travisToken,
 				arguments.pollingIntervalInSeconds,
-				arguments.backlogHours)) {
+				arguments.backlogHours,
+				new GitActionsImpl(LOCAL_BASE_PATH))) {
 			ciBot.run();
 		}
 	}
 
-	public CiBot(String observedRepository, String ciRepository, String username, String githubToken, String travisToken, int pollingIntervalInSeconds, int backlogHours) throws Exception {
+	public CiBot(String observedRepository, String ciRepository, String username, String githubToken, String travisToken, int pollingIntervalInSeconds, int backlogHours, GitActions gitActions) throws Exception {
 		this.observedRepository = observedRepository;
 		this.ciRepository = ciRepository;
 		this.username = username;
@@ -160,54 +152,20 @@ public class CiBot implements Runnable, AutoCloseable {
 		this.travisToken = travisToken;
 		this.pollingIntervalInSeconds = pollingIntervalInSeconds;
 		this.backlogHours = backlogHours;
+		this.gitActions = gitActions;
 
 		cache = new Cache(LOCAL_CACHE_PATH, 4 * 1024 * 1024);
 		okHttpClient = setupOkHttpClient(cache);
-		git = setupGit(observedRepository, ciRepository);
 		gitHub = setupGitHub(githubToken, okHttpClient);
+
+		setupGit(gitActions, observedRepository, ciRepository);
 	}
 
-	private static Git setupGit(String observedRepository, String ciRepository) throws Exception {
-		LOG.info("Setting up git repo at {}.", LOCAL_REPO_PATH);
+	private static void setupGit(GitActions gitActions, String observedRepository, String ciRepository) throws Exception {
+		gitActions.addRemote(getGitHubURL(observedRepository), REMOTE_NAME_OBSERVED_REPOSITORY);
+		gitActions.addRemote(getGitHubURL(ciRepository), REMOTE_NAME_CI_REPOSITORY);
 
-		FileUtils.deleteDirectory(LOCAL_REPO_PATH.getParentFile().getParentFile());
-
-		final Repository repo = new FileRepositoryBuilder()
-				.setMustExist(false)
-				.setGitDir(LOCAL_REPO_PATH)
-				.build();
-		repo.create();
-
-		Git git = new Git(repo) {
-			@Override
-			public void close() {
-				// this is a hack to couple the git and repo lifecycle
-				repo.close();
-				super.close();
-			}
-		};
-
-		LOG.info("Setting up remote for observed repository ({}).", observedRepository);
-		git.remoteAdd()
-				.setName(REMOTE_NAME_OBSERVED_REPOSITORY)
-				.setUri(new URIish().setPath(getGitHubURL(observedRepository)))
-				.call();
-
-		LOG.info("Setting up remote for CI repository ({}).", ciRepository);
-		git.remoteAdd()
-				.setName(REMOTE_NAME_CI_REPOSITORY)
-				.setUri(new URIish(new URL(getGitHubURL(ciRepository))))
-				.call();
-
-		LOG.info("Fetching master of observed repository.");
-		git.fetch()
-				.setRemote(REMOTE_NAME_OBSERVED_REPOSITORY)
-				// this should use a logger instead, but this would break the output being updated in-place
-				.setProgressMonitor(new TextProgressMonitor())
-				.setRefSpecs(new RefSpec("refs/heads/master:refs/heads/master"))
-				.call();
-
-		return git;
+		gitActions.fetchBranch("master", REMOTE_NAME_OBSERVED_REPOSITORY, false);
 	}
 
 	private static OkHttpClient setupOkHttpClient(Cache cache) {
@@ -259,7 +217,7 @@ public class CiBot implements Runnable, AutoCloseable {
 
 	@Override
 	public void close() {
-		git.close();
+		gitActions.close();
 		try {
 			cache.close();
 		} catch (Exception e) {
@@ -399,13 +357,11 @@ public class CiBot implements Runnable, AutoCloseable {
 	private void deleteCiBranches(List<Build> finishedBuilds) throws Exception {
 		for (Build finishedBuild : finishedBuilds) {
 			LOG.info("Deleting CI branch for {}@{}.", finishedBuild.pullRequestID, finishedBuild.commitHash);
-			git.push()
-					.setRefSpecs(new RefSpec(":refs/heads/" + getCiBranchName(finishedBuild.pullRequestID, finishedBuild.commitHash)))
-					.setRemote(REMOTE_NAME_CI_REPOSITORY)
-					.setCredentialsProvider(new UsernamePasswordCredentialsProvider(githubToken, ""))
-					.setForce(true)
-					.call()
-					.forEach(pushResult -> LOG.debug(pushResult.getRemoteUpdates().toString()));
+			gitActions.deleteBranch(
+					getCiBranchName(finishedBuild.pullRequestID, finishedBuild.commitHash),
+					REMOTE_NAME_CI_REPOSITORY,
+					true,
+					githubToken);
 			Thread.sleep(DELAY_MILLI_SECONDS);
 		}
 	}
@@ -456,45 +412,25 @@ public class CiBot implements Runnable, AutoCloseable {
 
 	private Build mirrorPullRequest(int pullRequestID) throws Exception {
 		LOG.info("Mirroring PullRequest {}.", pullRequestID);
-		LOG.info("Fetching PullRequest {}.", pullRequestID);
-		git.fetch()
-				.setRemote(REMOTE_NAME_OBSERVED_REPOSITORY)
-				.setCheckFetchedObjects(true)
-				.setRefSpecs(new RefSpec("refs/pull/" + pullRequestID + "/head:" + pullRequestID))
-				.call();
+
+		gitActions.fetchBranch(String.valueOf(pullRequestID), REMOTE_NAME_OBSERVED_REPOSITORY, true);
 
 		// the PR may have been updated in between the state fetch and this point
 		// determine actual HEAD commit
-		ObjectId resolve = git.getRepository().resolve(String.valueOf(pullRequestID));
-		Iterable<RevCommit> call = git.log()
-				.add(resolve)
-				.call();
-
-		String commitHash = null;
-		for (Iterator<RevCommit> iterator = call.iterator(); iterator.hasNext(); ) {
-			RevCommit revCommit = iterator.next();
-			commitHash = revCommit.getName();
-			break;
-		}
+		String commitHash = gitActions.getHeadCommitSHA(String.valueOf(pullRequestID));
 		LOG.debug("Using commitHash {} for PR {}.", commitHash, pullRequestID);
 
-		if (commitHash == null) {
-			throw new IllegalStateException("log() returned no commits for PR " + pullRequestID + ".");
-		}
-
 		LOG.info("Pushing PullRequest {}.", pullRequestID);
-		git.push()
-				.setRemote(REMOTE_NAME_CI_REPOSITORY)
-				.setRefSpecs(new RefSpec(pullRequestID + ":refs/heads/" + getCiBranchName(pullRequestID, commitHash)))
-				.setCredentialsProvider(new UsernamePasswordCredentialsProvider(githubToken, ""))
-				.call()
-				.forEach(pushResult -> LOG.debug(pushResult.getRemoteUpdates().toString()));
+		gitActions.pushBranch(
+				String.valueOf(pullRequestID),
+				getCiBranchName(pullRequestID, commitHash),
+				REMOTE_NAME_CI_REPOSITORY,
+				false,
+				githubToken);
 
-		git.branchDelete()
-				.setBranchNames(String.valueOf(pullRequestID))
-				.setForce(true)
-				.call()
-				.forEach(deleteResult -> LOG.debug("Deleted branch {}.", deleteResult));
+		gitActions.deleteBranch(
+				String.valueOf(pullRequestID),
+				true);
 
 		return new Build(pullRequestID, commitHash, Optional.empty());
 	}
