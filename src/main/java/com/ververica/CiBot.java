@@ -18,29 +18,23 @@
 package com.ververica;
 
 import com.beust.jcommander.JCommander;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ververica.git.GitActions;
 import com.ververica.git.GitActionsImpl;
+import com.ververica.github.GitHubActions;
+import com.ververica.github.GitHubCheckerStatus;
+import com.ververica.github.GitHubComment;
+import com.ververica.github.GithubActionsImpl;
+import com.ververica.github.GithubPullRequest;
 import okhttp3.Cache;
 import okhttp3.OkHttpClient;
-import okhttp3.OkUrlFactory;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 import org.apache.commons.io.FileUtils;
 import org.eclipse.jgit.api.errors.TransportException;
-import org.kohsuke.github.GHBranch;
 import org.kohsuke.github.GHException;
 import org.kohsuke.github.GHFileNotFoundException;
-import org.kohsuke.github.GHIssueComment;
-import org.kohsuke.github.GHIssueState;
-import org.kohsuke.github.GHPullRequest;
-import org.kohsuke.github.GHRepository;
-import org.kohsuke.github.GitHub;
-import org.kohsuke.github.GitHubBuilder;
 import org.kohsuke.github.HttpException;
-import org.kohsuke.github.extras.OkHttp3Connector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,7 +51,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -68,6 +61,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 /**
  * A bot that mirrors pull requests opened against one repository (so called "observed repository") to branches in
@@ -109,11 +103,11 @@ public class CiBot implements Runnable, AutoCloseable {
 	private final int pollingIntervalInSeconds;
 	private final int backlogHours;
 	private final GitActions gitActions;
+	private final GitHubActions gitHubActions;
 
 	private final static int DELAY_MILLI_SECONDS = 5 * 1000;
 
 	private final Cache cache;
-	private final GitHub gitHub;
 	private final OkHttpClient okHttpClient;
 
 	public static void main(String[] args) throws Exception {
@@ -139,12 +133,13 @@ public class CiBot implements Runnable, AutoCloseable {
 				arguments.travisToken,
 				arguments.pollingIntervalInSeconds,
 				arguments.backlogHours,
-				new GitActionsImpl(LOCAL_BASE_PATH))) {
+				new GitActionsImpl(LOCAL_BASE_PATH),
+				new GithubActionsImpl(LOCAL_BASE_PATH.resolve("github"), arguments.githubToken))) {
 			ciBot.run();
 		}
 	}
 
-	public CiBot(String observedRepository, String ciRepository, String username, String githubToken, String travisToken, int pollingIntervalInSeconds, int backlogHours, GitActions gitActions) throws Exception {
+	public CiBot(String observedRepository, String ciRepository, String username, String githubToken, String travisToken, int pollingIntervalInSeconds, int backlogHours, GitActions gitActions, GitHubActions gitHubActions) throws Exception {
 		this.observedRepository = observedRepository;
 		this.ciRepository = ciRepository;
 		this.username = username;
@@ -153,10 +148,10 @@ public class CiBot implements Runnable, AutoCloseable {
 		this.pollingIntervalInSeconds = pollingIntervalInSeconds;
 		this.backlogHours = backlogHours;
 		this.gitActions = gitActions;
+		this.gitHubActions = gitHubActions;
 
 		cache = new Cache(LOCAL_CACHE_PATH, 4 * 1024 * 1024);
 		okHttpClient = setupOkHttpClient(cache);
-		gitHub = setupGitHub(githubToken, okHttpClient);
 
 		setupGit(gitActions, observedRepository, ciRepository);
 	}
@@ -174,15 +169,6 @@ public class CiBot implements Runnable, AutoCloseable {
 		OkHttpClient.Builder okHttpClient = new OkHttpClient.Builder();
 		okHttpClient.cache(cache);
 		return okHttpClient.build();
-	}
-
-	private static GitHub setupGitHub(String token, OkHttpClient client) throws IOException {
-		LOG.info("Setting up GitHub client.");
-
-		return GitHubBuilder.fromEnvironment()
-				.withOAuthToken(token)
-				.withConnector(new OkHttp3Connector(new OkUrlFactory(client)))
-				.build();
 	}
 
 	@Override
@@ -218,6 +204,7 @@ public class CiBot implements Runnable, AutoCloseable {
 	@Override
 	public void close() {
 		gitActions.close();
+		gitHubActions.close();
 		try {
 			cache.close();
 		} catch (Exception e) {
@@ -254,23 +241,28 @@ public class CiBot implements Runnable, AutoCloseable {
 	private CIState fetchCiState() throws Exception {
 		LOG.info("Retrieving CI repository state ({}).", ciRepository);
 
-		final Map<String, GHBranch> branches = gitHub.getRepository(ciRepository).getBranches();
-
 		final List<Build> pendingBuilds = new ArrayList<>();
 		final List<Build> finishedBuilds = new ArrayList<>();
-		for (Map.Entry<String, GHBranch> stringGHBranchEntry : branches.entrySet()) {
-			Matcher matcher = REGEX_PATTERN_CI_BRANCH.matcher(stringGHBranchEntry.getKey());
+		for (String branch : gitHubActions.getBranches(ciRepository)) {
+			Matcher matcher = REGEX_PATTERN_CI_BRANCH.matcher(branch);
 			if (matcher.matches()) {
 				String commitHash = matcher.group(REGEX_GROUP_COMMIT_HASH);
 				int pullRequestID = Integer.valueOf(matcher.group(REGEX_GROUP_PULL_REQUEST_ID));
 
-				Build.Status lastStatus = getCommitState(okHttpClient, ciRepository, commitHash, githubToken);
-				if (lastStatus == null) {
-					LOG.warn("CI branch {} had no check attached.", getCiBranchName(pullRequestID, commitHash));
+				Iterable<GitHubCheckerStatus> commitState = gitHubActions.getCommitState(ciRepository, commitHash);
+				Optional<GitHubCheckerStatus> travisCheck = StreamSupport.stream(commitState.spliterator(), false)
+						.filter(status -> status.getName().contains("Travis CI"))
+						.findAny();
+
+				if (!travisCheck.isPresent()) {
+					LOG.warn("CI branch {} had no Travis check attached.", getCiBranchName(pullRequestID, commitHash));
+					// we can't ignore simply these as otherwise we will mirror these pull requests again
 					pendingBuilds.add(new Build(pullRequestID, commitHash, Optional.empty()));
 				} else {
-					Build build = new Build(pullRequestID, commitHash, Optional.of(lastStatus));
-					if (lastStatus.state == Build.Status.State.PENDING) {
+					GitHubCheckerStatus gitHubCheckerStatus = travisCheck.get();
+
+					Build build = new Build(pullRequestID, commitHash, Optional.of(gitHubCheckerStatus));
+					if (gitHubCheckerStatus.getState() == GitHubCheckerStatus.State.PENDING) {
 						pendingBuilds.add(build);
 					} else {
 						finishedBuilds.add(build);
@@ -298,60 +290,50 @@ public class CiBot implements Runnable, AutoCloseable {
 	private void updateCiReport(int pullRequestID, List<Build> builds) throws IOException {
 		Map<String, String> reportsPerCommit = new LinkedHashMap<>();
 		for (Build build : builds) {
-			Build.Status status = build.status.get();
+			GitHubCheckerStatus status = build.status.get();
 			String commitHash = build.commitHash;
-			reportsPerCommit.put(commitHash, String.format(TEMPLATE_MESSAGE_LINE, commitHash, status.state, status.externalUrl));
+			reportsPerCommit.put(commitHash, String.format(TEMPLATE_MESSAGE_LINE, commitHash, status.getState(), status.getDetailsUrl()));
 		}
 
-		Optional<GHIssueComment> ciReport = fetchCiReport(pullRequestID);
+		Optional<GitHubComment> ciReport = getCiReportComment(pullRequestID);
 
 		if (ciReport.isPresent()) {
-			GHIssueComment ghIssueComment = ciReport.get();
+			GitHubComment gitHubComment = ciReport.get();
 
-			Map<String, String> existingReportsPerCommit = new LinkedHashMap<>();
-
-			Matcher matcher = REGEX_PATTERN_CI_REPORT_LINES.matcher(ghIssueComment.getBody());
-			while (matcher.find()) {
-				existingReportsPerCommit.put(matcher.group(REGEX_GROUP_COMMIT_HASH), matcher.group(0));
-			}
+			Map<String, String> existingReportsPerCommit = extractCiReport(gitHubComment);
 
 			existingReportsPerCommit.putAll(reportsPerCommit);
 
 			String comment = String.format(TEMPLATE_MESSAGE, String.join("", existingReportsPerCommit.values()));
 
-			if (ghIssueComment.getBody().equals(comment)) {
+			if (gitHubComment.getCommentText().equals(comment)) {
 				LOG.debug("Skipping CI report update for pull request {} since it is up-to-date.");
 			} else {
 				LOG.info("Updating CI report for pull request {}.", pullRequestID);
-				ghIssueComment.update(comment);
+				gitHubComment.update(comment);
 			}
 		} else {
 			String comment = String.format(TEMPLATE_MESSAGE, String.join("", reportsPerCommit.values()));
 			LOG.info("Submitting new CI report for pull request {}.", pullRequestID);
-			submitComment(pullRequestID, comment);
+			gitHubActions.submitComment(observedRepository, pullRequestID, comment);
 		}
 	}
 
-	private Optional<GHIssueComment> fetchCiReport(int pullRequestID) throws IOException {
+	private Optional<GitHubComment> getCiReportComment(int pullRequestID) throws IOException {
 		LOG.info("Retrieving CI report for pull request {}.", pullRequestID);
-		final GHRepository observedGitHubRepository = gitHub.getRepository(this.observedRepository);
-		final GHPullRequest pullRequest = observedGitHubRepository.getPullRequest(pullRequestID);
-
-		for (GHIssueComment listReviewComment : pullRequest.getComments()) {
-			if (listReviewComment.getUser().getLogin().equals(username)) {
-				Matcher messageMatcher = REGEX_PATTERN_CI_REPORT_LINES.matcher(listReviewComment.getBody());
-				if (messageMatcher.find()) {
-					return Optional.of(listReviewComment);
-				}
-			}
-		}
-		return Optional.empty();
+		return StreamSupport.stream(gitHubActions.getComments(observedRepository, pullRequestID, username).spliterator(), false)
+				.filter(comment -> REGEX_PATTERN_CI_REPORT_LINES.matcher(comment.getCommentText()).find())
+				.findAny();
 	}
 
-	private void submitComment(int pullRequestID, String comment) throws IOException {
-		GHRepository repository = gitHub.getRepository(observedRepository);
-		GHPullRequest pullRequest = repository.getPullRequest(pullRequestID);
-		pullRequest.comment(comment);
+	private static Map<String, String> extractCiReport(GitHubComment ciReportComment) {
+		Map<String, String> ciReport = new LinkedHashMap<>();
+
+		Matcher matcher = REGEX_PATTERN_CI_REPORT_LINES.matcher(ciReportComment.getCommentText());
+		while (matcher.find()) {
+			ciReport.put(matcher.group(REGEX_GROUP_COMMIT_HASH), matcher.group(0));
+		}
+		return ciReport;
 	}
 
 	private void deleteCiBranches(List<Build> finishedBuilds) throws Exception {
@@ -368,29 +350,21 @@ public class CiBot implements Runnable, AutoCloseable {
 
 	private ObservedState fetchGithubState(Date lastUpdatedAtCutoff) throws IOException {
 		LOG.info("Retrieving observed repository state ({}).", observedRepository);
-		final GHRepository observedGitHubRepository = gitHub.getRepository(this.observedRepository);
-		final List<GHPullRequest> pullRequests = observedGitHubRepository.getPullRequests(GHIssueState.OPEN);
 
 		final List<Build> pullRequestsRequiringBuild = new ArrayList<>();
-		for (GHPullRequest pullRequest : pullRequests) {
-			LOG.trace("Evaluating PR {}.", pullRequest.getNumber());
-			if (pullRequest.getUpdatedAt().after(lastUpdatedAtCutoff)) {
-				final String headCommitHash = pullRequest.getHead().getSha();
-				final Collection<String> verifiedCommitHashes = new ArrayList<>();
-				for (GHIssueComment listReviewComment : pullRequest.getComments()) {
-					if (listReviewComment.getUser().getLogin().equals(username)) {
-						Matcher messageMatcher = REGEX_PATTERN_CI_REPORT_LINES.matcher(listReviewComment.getBody());
-						while (messageMatcher.find()) {
-							String commitHash = messageMatcher.group(REGEX_GROUP_COMMIT_HASH);
-							verifiedCommitHashes.add(commitHash);
-						}
-					}
-				}
-				if (!verifiedCommitHashes.contains(headCommitHash)) {
-					pullRequestsRequiringBuild.add(new Build(pullRequest.getNumber(), headCommitHash, Optional.empty()));
-				}
-			} else {
-				LOG.trace("Excluded PR {} due to not being updated recently. LastUpdatedAt={} updateCutoff={}", pullRequest.getNumber(), pullRequest.getUpdatedAt(), lastUpdatedAtCutoff);
+		for (GithubPullRequest pullRequest : gitHubActions.getRecentlyUpdatedOpenPullRequests(observedRepository, lastUpdatedAtCutoff)) {
+			final int pullRequestID = pullRequest.getID();
+			final String headCommitHash = pullRequest.getHeadCommitHash();
+			final Collection<String> reportedCommitHashes = new ArrayList<>();
+
+			Optional<GitHubComment> ciReport = getCiReportComment(pullRequestID);
+			ciReport.ifPresent(comment -> {
+				Map<String, String> stringStringMap = extractCiReport(comment);
+				reportedCommitHashes.addAll(stringStringMap.keySet());
+			});
+
+			if (!reportedCommitHashes.contains(headCommitHash)) {
+				pullRequestsRequiringBuild.add(new Build(pullRequestID, headCommitHash, Optional.empty()));
 			}
 		}
 
@@ -449,9 +423,9 @@ public class CiBot implements Runnable, AutoCloseable {
 	}
 
 	private void cancelBuild(Build build) {
-		final Build.Status status = build.status.get();
+		final GitHubCheckerStatus status = build.status.get();
 
-		final String externalUrl = status.externalUrl;
+		final String externalUrl = status.getDetailsUrl();
 		final String buildId = externalUrl.substring(externalUrl.lastIndexOf('/') + 1);
 
 		try {
@@ -484,70 +458,6 @@ public class CiBot implements Runnable, AutoCloseable {
 			requiredBuilds.forEach(build -> pw.println("\t\t" + build.pullRequestID + '@' + build.commitHash));
 		}
 		LOG.info(sw.toString());
-	}
-
-	/**
-	 * Retrieves the CI status for the given commit.
-	 *
-	 * <p>This internally retrieves the status via the Checks API, since the Commit Status API is not supported on
-	 * {@code travis-ci.com}.
-	 * Internally this uses a plain REST client, since the {@code github-api} does not support the
-	 * Checks API. (see https://github.com/kohsuke/github-api/issues/520)
-	 */
-	private static Build.Status getCommitState(OkHttpClient client, String observedRepository, String commitHash, String token) throws IOException {
-		try (Response response = client.newCall(new Request.Builder()
-				.url("https://api.github.com/repos/" + observedRepository + "/commits/" + commitHash + "/check-runs")
-				.addHeader("Accept", "application/vnd.github.antiope-preview+json")
-				.addHeader("Authorization", "token " + token)
-				.build()).execute()) {
-			String rawJson = response.body().string();
-
-			try {
-				ObjectMapper objectMapper = new ObjectMapper();
-				JsonNode jsonNode = objectMapper.readTree(rawJson);
-				Iterator<JsonNode> checkJson = jsonNode.get("check_runs").iterator();
-
-				if (checkJson.hasNext()) {
-					JsonNode next = checkJson.next();
-
-					final Build.Status.State state;
-					final GHStatus ghStatus = GHStatus.valueOf(next.get("status").asText().toUpperCase());
-					LOG.debug("CommitHash={} GHStatus={}", commitHash, ghStatus);
-					switch (ghStatus) {
-						case COMPLETED:
-							final GHConclusion ghConclusion = GHConclusion.valueOf(next.get("conclusion").asText().toUpperCase());
-							LOG.debug("GHConclusion={}", ghStatus);
-							switch (ghConclusion) {
-								case SUCCESS:
-									state = Build.Status.State.SUCCESS;
-									break;
-								case CANCELLED:
-									state = Build.Status.State.CANCELED;
-									break;
-								default:
-									state = Build.Status.State.FAILURE;
-									break;
-							}
-							break;
-						default:
-							state = Build.Status.State.PENDING;
-							break;
-					}
-					String externalUrl = next.get("details_url").asText();
-					return new Build.Status(state, externalUrl);
-				} else {
-					return null;
-				}
-			} catch (Exception e) {
-				LOG.debug("Raw Check JSON: {}.", rawJson);
-				throw e;
-			}
-		} catch (Exception e) {
-			// super janky but don't bother handling this in a better way
-			// there are just too many failure points here
-			LOG.warn("Could not retrieve commit state.", e);
-			return null;
-		}
 	}
 
 	private static String getCiBranchName(long pullRequestID, String commitHash) {
@@ -601,9 +511,9 @@ public class CiBot implements Runnable, AutoCloseable {
 	private static class Build {
 		public final int pullRequestID;
 		public final String commitHash;
-		public final Optional<Status> status;
+		public final Optional<GitHubCheckerStatus> status;
 
-		private Build(int pullRequestID, String commitHash, Optional<Status> status) {
+		private Build(int pullRequestID, String commitHash, Optional<GitHubCheckerStatus> status) {
 			this.pullRequestID = pullRequestID;
 			this.commitHash = commitHash;
 			this.status = status;
@@ -626,38 +536,5 @@ public class CiBot implements Runnable, AutoCloseable {
 		public int hashCode() {
 			return Objects.hash(pullRequestID, commitHash);
 		}
-
-		public static class Status {
-			public final State state;
-			public final String externalUrl;
-
-			public Status(State state, String externalUrl) {
-				this.state = state;
-				this.externalUrl = externalUrl;
-			}
-
-			public enum State {
-				PENDING,
-				SUCCESS,
-				CANCELED,
-				FAILURE
-			}
-		}
 	}
-
-	private enum GHConclusion {
-		SUCCESS,
-		FAILURE,
-		NEUTRAL,
-		CANCELLED,
-		TIMED_OUT,
-		ACTION_REQUIRED
-	}
-
-	private enum GHStatus {
-		QUEUED,
-		IN_PROGRESS,
-		COMPLETED
-	}
-
 }
