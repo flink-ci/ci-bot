@@ -468,6 +468,12 @@ public class CiBot implements Runnable, AutoCloseable {
 				.setCredentialsProvider(new UsernamePasswordCredentialsProvider(token, ""))
 				.call()
 				.forEach(pushResult -> LOG.debug(pushResult.getRemoteUpdates().toString()));
+
+		git.branchDelete()
+				.setBranchNames(String.valueOf(pullRequestID))
+				.setForce(true)
+				.call()
+				.forEach(deleteResult -> LOG.debug("Deleted branch {}.", deleteResult));
 	}
 
 	private static void logRequiredBuilds(List<Build> requiredBuilds) {
