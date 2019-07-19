@@ -353,8 +353,12 @@ public class CiBot implements Runnable, AutoCloseable {
 
 			String comment = String.format(TEMPLATE_MESSAGE, String.join("", existingReportsPerCommit.values()));
 
-			LOG.info("Updating CI report for pull request {}.", pullRequestID);
-			ghIssueComment.update(comment);
+			if (ghIssueComment.getBody().equals(comment)) {
+				LOG.debug("Skipping CI report update for pull request {} since it is up-to-date.");
+			} else {
+				LOG.info("Updating CI report for pull request {}.", pullRequestID);
+				ghIssueComment.update(comment);
+			}
 		} else {
 			String comment = String.format(TEMPLATE_MESSAGE, String.join("", reportsPerCommit.values()));
 			LOG.info("Submitting new CI report for pull request {}.", pullRequestID);
