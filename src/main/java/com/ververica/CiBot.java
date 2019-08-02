@@ -227,7 +227,8 @@ public class CiBot implements Runnable, AutoCloseable {
 		try {
 			Date lastUpdateDate = Date.from(Instant.now().minus(Duration.ofHours(backlogHours)));
 			while (true) {
-				final Date currentUpdateDate = Date.from(Instant.now());
+				// include a grace-period to handle GitHub not returning the latest data
+				final Date currentUpdateDate = Date.from(Instant.now().minus(Duration.ofMinutes(10)));
 				try {
 					tick(lastUpdateDate);
 					lastUpdateDate = currentUpdateDate;
