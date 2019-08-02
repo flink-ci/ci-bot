@@ -410,6 +410,7 @@ public class CiBot implements Runnable, AutoCloseable {
 
 		final List<Build> pullRequestsRequiringBuild = new ArrayList<>();
 		for (GHPullRequest pullRequest : pullRequests) {
+			LOG.trace("Evaluating PR {}.", pullRequest.getNumber());
 			if (pullRequest.getUpdatedAt().after(lastUpdatedAtCutoff)) {
 				final String headCommitHash = pullRequest.getHead().getSha();
 				final Collection<String> verifiedCommitHashes = new ArrayList<>();
@@ -425,6 +426,8 @@ public class CiBot implements Runnable, AutoCloseable {
 				if (!verifiedCommitHashes.contains(headCommitHash)) {
 					pullRequestsRequiringBuild.add(new Build(pullRequest.getNumber(), headCommitHash, Optional.empty()));
 				}
+			} else {
+				LOG.trace("Excluded PR {} due to not being updated recently. LastUpdatedAt={} updateCutoff={}", pullRequest.getNumber(), pullRequest.getUpdatedAt(), lastUpdatedAtCutoff);
 			}
 		}
 
