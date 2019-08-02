@@ -25,11 +25,8 @@ import com.ververica.github.GitHubCheckerStatus;
 import com.ververica.github.GitHubComment;
 import com.ververica.github.GithubActionsImpl;
 import com.ververica.github.GithubPullRequest;
-import okhttp3.Cache;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.RequestBody;
-import okhttp3.Response;
+import com.ververica.travis.TravisActions;
+import com.ververica.travis.TravisActionsImpl;
 import org.apache.commons.io.FileUtils;
 import org.eclipse.jgit.api.errors.TransportException;
 import org.kohsuke.github.GHException;
@@ -38,7 +35,6 @@ import org.kohsuke.github.HttpException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -56,7 +52,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -72,7 +67,6 @@ public class CiBot implements Runnable, AutoCloseable {
 	private static final Logger LOG = LoggerFactory.getLogger(CiBot.class);
 
 	private static final Path LOCAL_BASE_PATH = Paths.get(System.getProperty("java.io.tmpdir"), "ci_bot");
-	private static final File LOCAL_CACHE_PATH = LOCAL_BASE_PATH.resolve(Paths.get("cache_" + UUID.randomUUID())).toFile();
 
 	private static final String REMOTE_NAME_OBSERVED_REPOSITORY = "observed";
 	private static final String REMOTE_NAME_CI_REPOSITORY = "ci";
@@ -99,16 +93,13 @@ public class CiBot implements Runnable, AutoCloseable {
 	private final String ciRepository;
 	private final String username;
 	private final String githubToken;
-	private final String travisToken;
 	private final int pollingIntervalInSeconds;
 	private final int backlogHours;
 	private final GitActions gitActions;
 	private final GitHubActions gitHubActions;
+	private final TravisActions travisActions;
 
 	private final static int DELAY_MILLI_SECONDS = 5 * 1000;
-
-	private final Cache cache;
-	private final OkHttpClient okHttpClient;
 
 	public static void main(String[] args) throws Exception {
 		final Arguments arguments = new Arguments();
@@ -130,28 +121,25 @@ public class CiBot implements Runnable, AutoCloseable {
 				arguments.ciRepository,
 				arguments.username,
 				arguments.githubToken,
-				arguments.travisToken,
 				arguments.pollingIntervalInSeconds,
 				arguments.backlogHours,
 				new GitActionsImpl(LOCAL_BASE_PATH),
-				new GithubActionsImpl(LOCAL_BASE_PATH.resolve("github"), arguments.githubToken))) {
+				new GithubActionsImpl(LOCAL_BASE_PATH.resolve("github"), arguments.githubToken),
+				new TravisActionsImpl(LOCAL_BASE_PATH.resolve("travis"), arguments.travisToken))) {
 			ciBot.run();
 		}
 	}
 
-	public CiBot(String observedRepository, String ciRepository, String username, String githubToken, String travisToken, int pollingIntervalInSeconds, int backlogHours, GitActions gitActions, GitHubActions gitHubActions) throws Exception {
+	public CiBot(String observedRepository, String ciRepository, String username, String githubToken, int pollingIntervalInSeconds, int backlogHours, GitActions gitActions, GitHubActions gitHubActions, TravisActions travisActions) throws Exception {
 		this.observedRepository = observedRepository;
 		this.ciRepository = ciRepository;
 		this.username = username;
 		this.githubToken = githubToken;
-		this.travisToken = travisToken;
 		this.pollingIntervalInSeconds = pollingIntervalInSeconds;
 		this.backlogHours = backlogHours;
 		this.gitActions = gitActions;
 		this.gitHubActions = gitHubActions;
-
-		cache = new Cache(LOCAL_CACHE_PATH, 4 * 1024 * 1024);
-		okHttpClient = setupOkHttpClient(cache);
+		this.travisActions = travisActions;
 
 		setupGit(gitActions, observedRepository, ciRepository);
 	}
@@ -161,14 +149,6 @@ public class CiBot implements Runnable, AutoCloseable {
 		gitActions.addRemote(getGitHubURL(ciRepository), REMOTE_NAME_CI_REPOSITORY);
 
 		gitActions.fetchBranch("master", REMOTE_NAME_OBSERVED_REPOSITORY, false);
-	}
-
-	private static OkHttpClient setupOkHttpClient(Cache cache) {
-		LOG.info("Setting up OkHttp client with cache at {}.", LOCAL_CACHE_PATH);
-
-		OkHttpClient.Builder okHttpClient = new OkHttpClient.Builder();
-		okHttpClient.cache(cache);
-		return okHttpClient.build();
 	}
 
 	@Override
@@ -205,11 +185,7 @@ public class CiBot implements Runnable, AutoCloseable {
 	public void close() {
 		gitActions.close();
 		gitHubActions.close();
-		try {
-			cache.close();
-		} catch (Exception e) {
-			LOG.debug("Error while shutting down cache.", e);
-		}
+		travisActions.close();
 		try {
 			FileUtils.deleteDirectory(LOCAL_BASE_PATH.toFile());
 		} catch (Exception e) {
@@ -417,35 +393,10 @@ public class CiBot implements Runnable, AutoCloseable {
 		for (final Build triggeredBuild : triggeredBuilds) {
 			List<Build> buildsToCancel = pendingBuildsPerPullRequestId.getOrDefault(triggeredBuild.pullRequestID, Collections.emptyList());
 			for (final Build buildToCancel : buildsToCancel) {
-				cancelBuild(buildToCancel);
+				final GitHubCheckerStatus status = buildToCancel.status.get();
+				LOG.info("Canceling build {}@{}.", buildToCancel.pullRequestID, buildToCancel.commitHash);
+				travisActions.cancelBuild(status.getDetailsUrl());
 			}
-		}
-	}
-
-	private void cancelBuild(Build build) {
-		final GitHubCheckerStatus status = build.status.get();
-
-		final String externalUrl = status.getDetailsUrl();
-		final String buildId = externalUrl.substring(externalUrl.lastIndexOf('/') + 1);
-
-		try {
-			LOG.debug("Canceling build {}@{}.", build.pullRequestID, build.commitHash);
-			try (Response cancelResponse = okHttpClient.newCall(
-					new Request.Builder()
-							.url("https://api.travis-ci.com/v3/build/" + buildId + "/cancel")
-							.header("Authorization", "token " + travisToken)
-							.header("Travis-API-Version", "3")
-							.post(RequestBody.create(null, ""))
-							.build()
-			).execute()) {
-				if (cancelResponse.isSuccessful()) {
-					LOG.info("Canceled build {}@{}.", build.pullRequestID, build.commitHash);
-				} else {
-					LOG.debug("Cancel response: {}; {}.", cancelResponse.toString(), cancelResponse.body().string());
-				}
-			}
-		} catch (IOException e) {
-			LOG.error("Failed to cancel build {}@{}.", build.pullRequestID, build.commitHash, e);
 		}
 	}
 
