@@ -112,6 +112,7 @@ public class CiBot implements Runnable, AutoCloseable {
 	private final String ciRepository;
 	private final String username;
 	private final String githubToken;
+	private final String travisToken;
 	private final int pollingIntervalInSeconds;
 	private final int backlogHours;
 
@@ -142,17 +143,19 @@ public class CiBot implements Runnable, AutoCloseable {
 				arguments.ciRepository,
 				arguments.username,
 				arguments.githubToken,
+				arguments.travisToken,
 				arguments.pollingIntervalInSeconds,
 				arguments.backlogHours)) {
 			ciBot.run();
 		}
 	}
 
-	public CiBot(String observedRepository, String ciRepository, String username, String githubToken, int pollingIntervalInSeconds, int backlogHours) throws Exception {
+	public CiBot(String observedRepository, String ciRepository, String username, String githubToken, String travisToken, int pollingIntervalInSeconds, int backlogHours) throws Exception {
 		this.observedRepository = observedRepository;
 		this.ciRepository = ciRepository;
 		this.username = username;
 		this.githubToken = githubToken;
+		this.travisToken = travisToken;
 		this.pollingIntervalInSeconds = pollingIntervalInSeconds;
 		this.backlogHours = backlogHours;
 

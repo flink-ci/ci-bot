@@ -21,6 +21,8 @@ Usage: java -jar ci-bot.jar [options]
       Default: 300
   * --observedRepository, -or
       The repo to observe.
+  * --travisToken, -tt
+      The Travis authorization token with cancel permissions for the CI
       repository.
   * --user, -u
       The GitHub account name to use for posting results.

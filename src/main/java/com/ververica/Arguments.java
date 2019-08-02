@@ -48,6 +48,12 @@ final class Arguments {
 	String githubToken;
 
 	@Parameter(
+			names = {"--travisToken", "-tt"},
+			required = true,
+			description = "The Travis authorization token with cancel permissions for the CI repository.")
+	String travisToken;
+
+	@Parameter(
 			names = {"--interval", "-i"},
 			required = false,
 			description = "The polling interval in seconds.")
