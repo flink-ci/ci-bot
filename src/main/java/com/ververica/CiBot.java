@@ -447,7 +447,7 @@ public class CiBot implements Runnable, AutoCloseable {
 		}
 	}
 
-	private void mirrorPullRequest(long pullRequestID) throws Exception {
+	private Build mirrorPullRequest(int pullRequestID) throws Exception {
 		LOG.info("Mirroring PullRequest {}.", pullRequestID);
 		LOG.info("Fetching PullRequest {}.", pullRequestID);
 		git.fetch()
