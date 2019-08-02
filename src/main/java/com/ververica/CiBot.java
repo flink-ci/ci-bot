@@ -24,6 +24,7 @@ import okhttp3.Cache;
 import okhttp3.OkHttpClient;
 import okhttp3.OkUrlFactory;
 import okhttp3.Request;
+import okhttp3.RequestBody;
 import okhttp3.Response;
 import org.apache.commons.io.FileUtils;
 import org.eclipse.jgit.api.Git;
@@ -62,6 +63,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -279,7 +281,9 @@ public class CiBot implements Runnable, AutoCloseable {
 		final ObservedState observedRepositoryState = fetchGithubState(lastUpdateTime);
 		final List<Build> requiredBuilds = resolveStates(ciState, observedRepositoryState);
 		logRequiredBuilds(requiredBuilds);
-		mirrorPullRequests(requiredBuilds);
+		final List<Build> triggeredBuilds = mirrorPullRequests(requiredBuilds);
+
+		cancelPreviousBuilds(triggeredBuilds, ciState);
 	}
 
 	private static List<Build> resolveStates(CIState ciState, ObservedState observedState) {
@@ -437,14 +441,17 @@ public class CiBot implements Runnable, AutoCloseable {
 		return new ObservedState(pullRequestsRequiringBuild);
 	}
 
-	private void mirrorPullRequests(List<Build> builds) throws Exception {
+	private List<Build> mirrorPullRequests(List<Build> builds) throws Exception {
+		final List<Build> triggeredBuilds = new ArrayList<>();
 		if (!builds.isEmpty()) {
 			for (Build build : builds) {
-				mirrorPullRequest(build.pullRequestID);
+				final Build triggeredBuild = mirrorPullRequest(build.pullRequestID);
+				triggeredBuilds.add(triggeredBuild);
 				Thread.sleep(DELAY_MILLI_SECONDS);
 			}
 			LOG.info("Mirroring complete.");
 		}
+		return triggeredBuilds;
 	}
 
 	private Build mirrorPullRequest(int pullRequestID) throws Exception {
@@ -488,6 +495,48 @@ public class CiBot implements Runnable, AutoCloseable {
 				.setForce(true)
 				.call()
 				.forEach(deleteResult -> LOG.debug("Deleted branch {}.", deleteResult));
+
+		return new Build(pullRequestID, commitHash, Optional.empty());
+	}
+
+	private void cancelPreviousBuilds(List<Build> triggeredBuilds, CIState ciState) {
+		final Map<Integer, List<Build>> pendingBuildsPerPullRequestId = ciState.pendingBuilds.stream()
+				.filter(build -> build.status.isPresent())
+				.collect(Collectors.groupingBy(build -> build.pullRequestID));
+
+		for (final Build triggeredBuild : triggeredBuilds) {
+			List<Build> buildsToCancel = pendingBuildsPerPullRequestId.getOrDefault(triggeredBuild.pullRequestID, Collections.emptyList());
+			for (final Build buildToCancel : buildsToCancel) {
+				cancelBuild(buildToCancel);
+			}
+		}
+	}
+
+	private void cancelBuild(Build build) {
+		final Build.Status status = build.status.get();
+
+		final String externalUrl = status.externalUrl;
+		final String buildId = externalUrl.substring(externalUrl.lastIndexOf('/') + 1);
+
+		try {
+			LOG.debug("Canceling build {}@{}.", build.pullRequestID, build.commitHash);
+			try (Response cancelResponse = okHttpClient.newCall(
+					new Request.Builder()
+							.url("https://api.travis-ci.com/v3/build/" + buildId + "/cancel")
+							.header("Authorization", "token " + travisToken)
+							.header("Travis-API-Version", "3")
+							.post(RequestBody.create(null, ""))
+							.build()
+			).execute()) {
+				if (cancelResponse.isSuccessful()) {
+					LOG.info("Canceled build {}@{}.", build.pullRequestID, build.commitHash);
+				} else {
+					LOG.debug("Cancel response: {}; {}.", cancelResponse.toString(), cancelResponse.body().string());
+				}
+			}
+		} catch (IOException e) {
+			LOG.error("Failed to cancel build {}@{}.", build.pullRequestID, build.commitHash, e);
+		}
 	}
 
 	private static void logRequiredBuilds(List<Build> requiredBuilds) {
