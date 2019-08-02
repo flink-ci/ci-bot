@@ -42,10 +42,10 @@ final class Arguments {
 	String username;
 
 	@Parameter(
-			names = {"--token", "-t"},
+			names = {"--githubToken", "-gt"},
 			required = true,
 			description = "The GitHub authorization token with write permissions for the CI repository.")
-	String token;
+	String githubToken;
 
 	@Parameter(
 			names = {"--interval", "-i"},

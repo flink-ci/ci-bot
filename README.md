@@ -13,13 +13,14 @@ Usage: java -jar ci-bot.jar [options]
       Default: 24
   * --ciRepository, -cr
       The repo to run the CI.
+  * --githubToken, -gt
+      The GitHub authorization token with write permissions for the CI
+      repository.
     --interval, -i
       The polling interval in seconds.
       Default: 300
   * --observedRepository, -or
       The repo to observe.
-  * --token, -t
-      The GitHub authorization token with write permissions for the CI
       repository.
   * --user, -u
       The GitHub account name to use for posting results.

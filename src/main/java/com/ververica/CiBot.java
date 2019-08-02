@@ -111,7 +111,7 @@ public class CiBot implements Runnable, AutoCloseable {
 	private final String observedRepository;
 	private final String ciRepository;
 	private final String username;
-	private final String token;
+	private final String githubToken;
 	private final int pollingIntervalInSeconds;
 	private final int backlogHours;
 
@@ -141,25 +141,25 @@ public class CiBot implements Runnable, AutoCloseable {
 				arguments.observedRepository,
 				arguments.ciRepository,
 				arguments.username,
-				arguments.token,
+				arguments.githubToken,
 				arguments.pollingIntervalInSeconds,
 				arguments.backlogHours)) {
 			ciBot.run();
 		}
 	}
 
-	public CiBot(String observedRepository, String ciRepository, String username, String token, int pollingIntervalInSeconds, int backlogHours) throws Exception {
+	public CiBot(String observedRepository, String ciRepository, String username, String githubToken, int pollingIntervalInSeconds, int backlogHours) throws Exception {
 		this.observedRepository = observedRepository;
 		this.ciRepository = ciRepository;
 		this.username = username;
-		this.token = token;
+		this.githubToken = githubToken;
 		this.pollingIntervalInSeconds = pollingIntervalInSeconds;
 		this.backlogHours = backlogHours;
 
 		cache = new Cache(LOCAL_CACHE_PATH, 4 * 1024 * 1024);
 		okHttpClient = setupOkHttpClient(cache);
 		git = setupGit(observedRepository, ciRepository);
-		gitHub = setupGitHub(token, okHttpClient);
+		gitHub = setupGitHub(githubToken, okHttpClient);
 	}
 
 	private static Git setupGit(String observedRepository, String ciRepository) throws Exception {
@@ -299,7 +299,7 @@ public class CiBot implements Runnable, AutoCloseable {
 				String commitHash = matcher.group(REGEX_GROUP_COMMIT_HASH);
 				int pullRequestID = Integer.valueOf(matcher.group(REGEX_GROUP_PULL_REQUEST_ID));
 
-				Build.Status lastStatus = getCommitState(okHttpClient, ciRepository, commitHash, token);
+				Build.Status lastStatus = getCommitState(okHttpClient, ciRepository, commitHash, githubToken);
 				if (lastStatus == null) {
 					LOG.warn("CI branch {} had no check attached.", getCiBranchName(pullRequestID, commitHash));
 					pendingBuilds.add(new Build(pullRequestID, commitHash, Optional.empty()));
@@ -395,7 +395,7 @@ public class CiBot implements Runnable, AutoCloseable {
 			git.push()
 					.setRefSpecs(new RefSpec(":refs/heads/" + getCiBranchName(finishedBuild.pullRequestID, finishedBuild.commitHash)))
 					.setRemote(REMOTE_NAME_CI_REPOSITORY)
-					.setCredentialsProvider(new UsernamePasswordCredentialsProvider(token, ""))
+					.setCredentialsProvider(new UsernamePasswordCredentialsProvider(githubToken, ""))
 					.setForce(true)
 					.call()
 					.forEach(pushResult -> LOG.debug(pushResult.getRemoteUpdates().toString()));
@@ -476,7 +476,7 @@ public class CiBot implements Runnable, AutoCloseable {
 		git.push()
 				.setRemote(REMOTE_NAME_CI_REPOSITORY)
 				.setRefSpecs(new RefSpec(pullRequestID + ":refs/heads/" + getCiBranchName(pullRequestID, commitHash)))
-				.setCredentialsProvider(new UsernamePasswordCredentialsProvider(token, ""))
+				.setCredentialsProvider(new UsernamePasswordCredentialsProvider(githubToken, ""))
 				.call()
 				.forEach(pushResult -> LOG.debug(pushResult.getRemoteUpdates().toString()));
 
