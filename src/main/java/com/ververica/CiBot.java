@@ -524,7 +524,7 @@ public class CiBot implements Runnable, AutoCloseable {
 
 					final Build.Status.State state;
 					final GHStatus ghStatus = GHStatus.valueOf(next.get("status").asText().toUpperCase());
-					LOG.debug("GHStatus={}", ghStatus);
+					LOG.debug("CommitHash={} GHStatus={}", commitHash, ghStatus);
 					switch (ghStatus) {
 						case COMPLETED:
 							final GHConclusion ghConclusion = GHConclusion.valueOf(next.get("conclusion").asText().toUpperCase());
