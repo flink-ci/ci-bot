@@ -197,17 +197,26 @@ public class CiBot implements Runnable, AutoCloseable {
 	private void tick(Date lastUpdateTime) throws Exception {
 		final CIState ciState = fetchCiState();
 		updateCiReports(ciState);
-		deleteCiBranches(ciState.finishedBuilds);
 
 		final ObservedState observedRepositoryState = fetchGithubState(lastUpdateTime);
-		final List<Build> requiredBuilds = resolveStates(ciState, observedRepositoryState);
+
+		final List<Build> newlyFinishedBuilds = resolveFinishedBuilds(ciState, observedRepositoryState);
+		deleteCiBranches(newlyFinishedBuilds);
+
+		final List<Build> requiredBuilds = resolveRequiredBuilds(ciState, observedRepositoryState);
 		logRequiredBuilds(requiredBuilds);
 		final List<Build> triggeredBuilds = mirrorPullRequests(requiredBuilds);
 
 		cancelPreviousBuilds(triggeredBuilds, ciState);
 	}
 
-	private static List<Build> resolveStates(CIState ciState, ObservedState observedState) {
+	private static List<Build> resolveFinishedBuilds(CIState ciState, ObservedState observedState) {
+		return observedState.finishedBuilds.stream()
+				.filter(ciState.finishedBuilds::contains)
+				.collect(Collectors.toList());
+	}
+
+	private static List<Build> resolveRequiredBuilds(CIState ciState, ObservedState observedState) {
 		return observedState.awaitingBuilds.stream()
 				.filter(build -> !ciState.pendingBuilds.contains(build))
 				.filter(build -> !ciState.finishedBuilds.contains(build))
@@ -331,6 +340,8 @@ public class CiBot implements Runnable, AutoCloseable {
 		LOG.info("Retrieving observed repository state ({}).", observedRepository);
 
 		final List<Build> pullRequestsRequiringBuild = new ArrayList<>();
+		List<Build> pendingBuilds = new ArrayList<>();
+		List<Build> finishedBuilds = new ArrayList<>();
 		for (GithubPullRequest pullRequest : gitHubActions.getRecentlyUpdatedOpenPullRequests(observedRepository, lastUpdatedAtCutoff)) {
 			final int pullRequestID = pullRequest.getID();
 			final String headCommitHash = pullRequest.getHeadCommitHash();
@@ -338,8 +349,20 @@ public class CiBot implements Runnable, AutoCloseable {
 
 			Optional<GitHubComment> ciReport = getCiReportComment(pullRequestID);
 			ciReport.ifPresent(comment -> {
-				Map<String, String> stringStringMap = extractCiReport(comment);
-				reportedCommitHashes.addAll(stringStringMap.keySet());
+				Map<String, String> reports = extractCiReport(comment);
+				for (String report : reports.values()) {
+					Matcher matcher = REGEX_PATTERN_CI_REPORT_LINES.matcher(report);
+					if (matcher.matches()) {
+						String commitHash = matcher.group(REGEX_GROUP_COMMIT_HASH);
+						String status = matcher.group(REGEX_GROUP_BUILD_STATUS);
+						if (GitHubCheckerStatus.State.valueOf(status) == GitHubCheckerStatus.State.PENDING) {
+							pendingBuilds.add(new Build(pullRequestID, commitHash, Optional.empty()));
+						} else {
+							finishedBuilds.add(new Build(pullRequestID, commitHash, Optional.empty()));
+						}
+					}
+				}
+				reportedCommitHashes.addAll(reports.keySet());
 			});
 
 			if (!reportedCommitHashes.contains(headCommitHash)) {
@@ -347,7 +370,7 @@ public class CiBot implements Runnable, AutoCloseable {
 			}
 		}
 
-		return new ObservedState(pullRequestsRequiringBuild);
+		return new ObservedState(pullRequestsRequiringBuild, pendingBuilds, finishedBuilds);
 	}
 
 	private List<Build> mirrorPullRequests(List<Build> builds) throws Exception {
@@ -443,10 +466,14 @@ public class CiBot implements Runnable, AutoCloseable {
 	}
 
 	private static class ObservedState {
+		public final List<Build> pendingBuilds;
+		public final List<Build> finishedBuilds;
 		public final List<Build> awaitingBuilds;
 
-		private ObservedState(List<Build> awaitingBuilds) {
+		private ObservedState(List<Build> awaitingBuilds, List<Build> pendingBuilds, List<Build> finishedBuilds) {
 			this.awaitingBuilds = awaitingBuilds;
+			this.pendingBuilds = pendingBuilds;
+			this.finishedBuilds = finishedBuilds;
 		}
 	}
 
