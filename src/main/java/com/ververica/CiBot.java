@@ -270,17 +270,20 @@ public class CiBot implements Runnable, AutoCloseable {
 			String commitHash = build.commitHash;
 			reportsPerCommit.put(commitHash, String.format(TEMPLATE_MESSAGE_LINE, commitHash, status.getState(), status.getDetailsUrl()));
 		}
+		logReports(String.format("New reports for pull request %s:", pullRequestID), reportsPerCommit);
 
 		Optional<GitHubComment> ciReport = getCiReportComment(pullRequestID);
 
 		if (ciReport.isPresent()) {
 			GitHubComment gitHubComment = ciReport.get();
+			LOG.trace("Existing CI report:\n{}", gitHubComment.getCommentText());
 
 			Map<String, String> existingReportsPerCommit = extractCiReport(gitHubComment);
 
 			existingReportsPerCommit.putAll(reportsPerCommit);
 
 			String comment = String.format(TEMPLATE_MESSAGE, String.join("", existingReportsPerCommit.values()));
+			LOG.trace("New CI report:\n{}", comment);
 
 			if (gitHubComment.getCommentText().equals(comment)) {
 				LOG.debug("Skipping CI report update for pull request {} since it is up-to-date.");
@@ -409,6 +412,16 @@ public class CiBot implements Runnable, AutoCloseable {
 			requiredBuilds.forEach(build -> pw.println("\t\t" + build.pullRequestID + '@' + build.commitHash));
 		}
 		LOG.info(sw.toString());
+	}
+
+	private static void logReports(String prefix, Map<String, String> reports) {
+		final StringWriter sw = new StringWriter();
+		try (PrintWriter pw = new PrintWriter(sw)) {
+			pw.println(prefix);
+
+			reports.values().forEach(pw::print);
+		}
+		LOG.debug(sw.toString());
 	}
 
 	private static String getCiBranchName(long pullRequestID, String commitHash) {
