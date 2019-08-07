@@ -200,6 +200,9 @@ public class CiBot implements Runnable, AutoCloseable {
 
 		final ObservedState observedRepositoryState = fetchGithubState(lastUpdateTime);
 
+		final List<Build> builds = resolveDanglingBuilds(ciState, observedRepositoryState);
+		logDanglingBuilds(builds);
+
 		final List<Build> newlyFinishedBuilds = resolveFinishedBuilds(ciState, observedRepositoryState);
 		deleteCiBranches(newlyFinishedBuilds);
 
@@ -208,6 +211,13 @@ public class CiBot implements Runnable, AutoCloseable {
 		final List<Build> triggeredBuilds = mirrorPullRequests(requiredBuilds);
 
 		cancelPreviousBuilds(triggeredBuilds, ciState);
+	}
+
+	private static List<Build> resolveDanglingBuilds(CIState ciState, ObservedState observedState) {
+		return observedState.pendingBuilds.stream()
+				.filter(build -> !ciState.pendingBuilds.contains(build))
+				.filter(build -> !ciState.finishedBuilds.contains(build))
+				.collect(Collectors.toList());
 	}
 
 	private static List<Build> resolveFinishedBuilds(CIState ciState, ObservedState observedState) {
@@ -423,6 +433,19 @@ public class CiBot implements Runnable, AutoCloseable {
 				LOG.info("Canceling build {}@{}.", buildToCancel.pullRequestID, buildToCancel.commitHash);
 				travisActions.cancelBuild(status.getDetailsUrl());
 			}
+		}
+	}
+
+	private static void logDanglingBuilds(List<Build> danglingBuilds) {
+		if (!danglingBuilds.isEmpty()) {
+			final StringWriter sw = new StringWriter();
+			try (PrintWriter pw = new PrintWriter(sw)) {
+				pw.println("Observed repository state:");
+
+				pw.println(String.format("\tDangling builds (%s):", danglingBuilds.size()));
+				danglingBuilds.forEach(build -> pw.println("\t\t" + build.pullRequestID + '@' + build.commitHash));
+			}
+			LOG.warn(sw.toString());
 		}
 	}
 
