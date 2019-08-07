@@ -223,7 +223,7 @@ public class CiBot implements Runnable, AutoCloseable {
 			Matcher matcher = REGEX_PATTERN_CI_BRANCH.matcher(branch);
 			if (matcher.matches()) {
 				String commitHash = matcher.group(REGEX_GROUP_COMMIT_HASH);
-				int pullRequestID = Integer.valueOf(matcher.group(REGEX_GROUP_PULL_REQUEST_ID));
+				int pullRequestID = Integer.parseInt(matcher.group(REGEX_GROUP_PULL_REQUEST_ID));
 
 				Iterable<GitHubCheckerStatus> commitState = gitHubActions.getCommitState(ciRepository, commitHash);
 				Optional<GitHubCheckerStatus> travisCheck = StreamSupport.stream(commitState.spliterator(), false)
@@ -286,7 +286,7 @@ public class CiBot implements Runnable, AutoCloseable {
 			LOG.trace("New CI report:\n{}", comment);
 
 			if (gitHubComment.getCommentText().equals(comment)) {
-				LOG.debug("Skipping CI report update for pull request {} since it is up-to-date.");
+				LOG.debug("Skipping CI report update for pull request {} since it is up-to-date.", pullRequestID);
 			} else {
 				LOG.info("Updating CI report for pull request {}.", pullRequestID);
 				gitHubComment.update(comment);
