@@ -19,6 +19,9 @@ package com.ververica.github;
 
 import java.io.IOException;
 import java.util.Date;
+import java.util.regex.MatchResult;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 public interface GitHubActions extends AutoCloseable {
 	void submitComment(String repository, int pullRequestID, String comment) throws IOException;
@@ -28,6 +31,8 @@ public interface GitHubActions extends AutoCloseable {
 	Iterable<String> getBranches(String repositoryName) throws IOException;
 
 	Iterable<GitHubComment> getComments(String repositoryName, int pullRequestID, String username) throws IOException;
+
+	Stream<GitHubComment> getComments(String repositoryName, int pullRequestID, Pattern pattern) throws IOException;
 
 	Iterable<GithubPullRequest> getRecentlyUpdatedOpenPullRequests(String repositoryName, Date since) throws IOException;
 

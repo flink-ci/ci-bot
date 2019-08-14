@@ -42,6 +42,9 @@ import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 public class GithubActionsImpl implements GitHubActions {
 	private static final Logger LOG = LoggerFactory.getLogger(GithubActionsImpl.class);
@@ -173,7 +176,24 @@ public class GithubActionsImpl implements GitHubActions {
 				comments.add(new GitHubComment(listReviewComment.getId(), listReviewComment.getBody(), listReviewComment::update));
 			}
 		}
+		pullRequest.listReviewComments().forEach(reviewComment ->
+				comments.add(new GitHubComment(reviewComment.getId(), reviewComment.getBody(), reviewComment::update)));
 		return comments;
+	}
+
+	@Override
+	public Stream<GitHubComment> getComments(String repositoryName, int pullRequestID, Pattern pattern) throws IOException {
+		final GHRepository repository = gitHub.getRepository(repositoryName);
+		final GHPullRequest pullRequest = repository.getPullRequest(pullRequestID);
+
+		final List<GitHubComment> comments = new ArrayList<>();
+		for (GHIssueComment listReviewComment : pullRequest.getComments()) {
+			Matcher matcher = pattern.matcher(listReviewComment.getBody());
+			if (matcher.find() || matcher.matches()) {
+				comments.add(new GitHubComment(listReviewComment.getId(), listReviewComment.getBody(), listReviewComment::update));
+			}
+		}
+		return comments.stream();
 	}
 
 	@Override
