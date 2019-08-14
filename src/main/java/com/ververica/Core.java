@@ -197,6 +197,10 @@ public class Core implements AutoCloseable {
 		return ciReport;
 	}
 
+	public boolean isPullRequestClosed(int pullRequestID) throws IOException {
+		return gitHubActions.isPullRequestClosed(observedRepository, pullRequestID);
+	}
+
 	public void deleteCiBranch(Build finishedBuild) throws Exception {
 		LOG.info("Deleting CI branch for {}@{}.", finishedBuild.pullRequestID, finishedBuild.commitHash);
 		gitActions.deleteBranch(

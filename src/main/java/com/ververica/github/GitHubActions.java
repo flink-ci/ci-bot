@@ -31,5 +31,7 @@ public interface GitHubActions extends AutoCloseable {
 
 	Iterable<GithubPullRequest> getRecentlyUpdatedOpenPullRequests(String repositoryName, Date since) throws IOException;
 
+	boolean isPullRequestClosed(String repositoryName, int pullRequestID) throws IOException;
+
 	void close();
 }

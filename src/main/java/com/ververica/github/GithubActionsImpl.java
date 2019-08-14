@@ -194,6 +194,13 @@ public class GithubActionsImpl implements GitHubActions {
 	}
 
 	@Override
+	public boolean isPullRequestClosed(String repositoryName, int pullRequestID) throws IOException {
+		final GHRepository observedGitHubRepository = gitHub.getRepository(repositoryName);
+
+		return observedGitHubRepository.getPullRequest(pullRequestID).getState() == GHIssueState.CLOSED;
+	}
+
+	@Override
 	public void close() {
 		try {
 			cache.close();

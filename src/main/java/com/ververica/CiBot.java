@@ -36,11 +36,11 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -162,19 +162,30 @@ public class CiBot implements Runnable, AutoCloseable {
 
 		final List<Build> requiredBuilds = resolveRequiredBuilds(ciState, observedRepositoryState);
 		logRequiredBuilds(requiredBuilds);
-		final List<Build> triggeredBuilds = new ArrayList<>();
+		final Set<Integer> pullRequestsWithNewBuilds = new HashSet<>();
 		for (Build build : requiredBuilds) {
-			triggeredBuilds.add(core.mirrorPullRequest(build.pullRequestID));
+			core.mirrorPullRequest(build.pullRequestID);
+			pullRequestsWithNewBuilds.add(build.pullRequestID);
 			Thread.sleep(DELAY_MILLI_SECONDS);
 		}
 
 		final Map<Integer, List<Build>> pendingBuildsPerPullRequestId = ciState.getPendingBuilds().collect(Collectors.groupingBy(build -> build.pullRequestID));
-		for (final Build triggeredBuild : triggeredBuilds) {
-			List<Build> buildsToCancel = pendingBuildsPerPullRequestId.getOrDefault(triggeredBuild.pullRequestID, Collections.emptyList());
-			for (final Build buildToCancel : buildsToCancel) {
-				core.cancelBuild(buildToCancel);
-				Thread.sleep(DELAY_MILLI_SECONDS);
+		for (Map.Entry<Integer, List<Build>> pendingBuilds : pendingBuildsPerPullRequestId.entrySet()) {
+			final int pullRequestID = pendingBuilds.getKey();
+			if (core.isPullRequestClosed(pullRequestID)) {
+				LOG.info("Canceling pending builds for PullRequest {} since new PullRequest was closed.", pullRequestID);
+				cancelBuilds(pendingBuilds.getValue());
+			} else if (pullRequestsWithNewBuilds.contains(pullRequestID)) {
+				LOG.info("Canceling pending builds for PullRequest {} since new build was triggered.", pullRequestID);
+				cancelBuilds(pendingBuilds.getValue());
 			}
+		}
+	}
+
+	private void cancelBuilds(Iterable<Build> builds) throws InterruptedException {
+		for (Build build : builds) {
+			core.cancelBuild(build);
+			Thread.sleep(DELAY_MILLI_SECONDS);
 		}
 	}
 
