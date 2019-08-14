@@ -22,12 +22,18 @@ import com.ververica.utils.ConsumerWithException;
 import java.io.IOException;
 
 public class GitHubComment {
+	private final long id;
 	private final String comment;
 	private final ConsumerWithException<String, IOException> updateFunction;
 
-	public GitHubComment(String comment, ConsumerWithException<String, IOException> updateFunction) {
+	public GitHubComment(long id, String comment, ConsumerWithException<String, IOException> updateFunction) {
+		this.id = id;
 		this.comment = comment;
 		this.updateFunction = updateFunction;
+	}
+
+	public long getId() {
+		return id;
 	}
 
 	public String getCommentText() {

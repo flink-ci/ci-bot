@@ -170,7 +170,7 @@ public class GithubActionsImpl implements GitHubActions {
 		final List<GitHubComment> comments = new ArrayList<>();
 		for (GHIssueComment listReviewComment : pullRequest.getComments()) {
 			if (listReviewComment.getUser().getLogin().equals(username)) {
-				comments.add(new GitHubComment(listReviewComment.getBody(), listReviewComment::update));
+				comments.add(new GitHubComment(listReviewComment.getId(), listReviewComment.getBody(), listReviewComment::update));
 			}
 		}
 		return comments;
