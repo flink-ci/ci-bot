@@ -276,9 +276,11 @@ public class Core implements AutoCloseable {
 	}
 
 	public void cancelBuild(Build buildToCancel) {
-		final GitHubCheckerStatus status = buildToCancel.status.get();
-		LOG.info("Canceling build {}@{}.", buildToCancel.pullRequestID, buildToCancel.commitHash);
-		travisActions.cancelBuild(status.getDetailsUrl());
+		if (buildToCancel.status.isPresent()) {
+			final GitHubCheckerStatus status = buildToCancel.status.get();
+			LOG.info("Canceling build {}@{}.", buildToCancel.pullRequestID, buildToCancel.commitHash);
+			travisActions.cancelBuild(status.getDetailsUrl());
+		}
 	}
 
 	private static void logReports(String prefix, Map<String, String> reports) {
