@@ -148,6 +148,9 @@ public class Core implements AutoCloseable {
 	public void updateCiReport(int pullRequestID, List<Build> builds) throws IOException {
 		Map<String, String> reportsPerCommit = new LinkedHashMap<>();
 		for (Build build : builds) {
+			if (!build.status.isPresent()) {
+				continue;
+			}
 			GitHubCheckerStatus status = build.status.get();
 			String commitHash = build.commitHash;
 			reportsPerCommit.put(commitHash, String.format(TEMPLATE_MESSAGE_LINE, commitHash, status.getState(), status.getDetailsUrl()));
