@@ -53,21 +53,10 @@ public class Core implements AutoCloseable {
 
 	private static final String REGEX_GROUP_PULL_REQUEST_ID = "PullRequestID";
 	private static final String REGEX_GROUP_COMMIT_HASH = "CommitHash";
-	private static final String REGEX_GROUP_BUILD_STATUS = "BuildStatus";
-	private static final String REGEX_GROUP_BUILD_URL = "URL";
 	private static final Pattern REGEX_PATTERN_CI_BRANCH = Pattern.compile(
 			"ci_(?<" + REGEX_GROUP_PULL_REQUEST_ID + ">[0-9]+)_(?<" + REGEX_GROUP_COMMIT_HASH + ">[0-9a-f]+)", Pattern.DOTALL);
 
-	private static final String TEMPLATE_MESSAGE = "" +
-			"## CI report:\n" +
-			"\n" +
-			"%s";
 	private static final String TEMPLATE_MESSAGE_LINE = "* %s : %s [Build](%s)\n";
-
-	private static final Pattern REGEX_PATTERN_CI_REPORT_LINES = Pattern.compile(String.format(escapeRegex(TEMPLATE_MESSAGE_LINE),
-			"(?<" + REGEX_GROUP_COMMIT_HASH + ">[0-9a-f]+)",
-			"(?<" + REGEX_GROUP_BUILD_STATUS + ">[A-Z]+)",
-			"(?<" + REGEX_GROUP_BUILD_URL + ">.+)"));
 
 	private final String observedRepository;
 	private final String ciRepository;
@@ -163,11 +152,10 @@ public class Core implements AutoCloseable {
 			GitHubComment gitHubComment = ciReport.get();
 			LOG.trace("Existing CI report:\n{}", gitHubComment.getCommentText());
 
-			Map<String, String> existingReportsPerCommit = extractCiReport(gitHubComment);
+			CiReport parsedCiReport = CiReport.fromComment(pullRequestID, gitHubComment.getCommentText());
+			builds.forEach(parsedCiReport::add);
 
-			existingReportsPerCommit.putAll(reportsPerCommit);
-
-			String comment = String.format(TEMPLATE_MESSAGE, String.join("", existingReportsPerCommit.values()));
+			String comment = parsedCiReport.toString();
 			LOG.trace("New CI report:\n{}", comment);
 
 			if (gitHubComment.getCommentText().equals(comment)) {
@@ -177,7 +165,9 @@ public class Core implements AutoCloseable {
 				gitHubComment.update(comment);
 			}
 		} else {
-			String comment = String.format(TEMPLATE_MESSAGE, String.join("", reportsPerCommit.values()));
+			CiReport parsedCiReport = CiReport.empty(pullRequestID);
+			builds.forEach(parsedCiReport::add);
+			String comment = parsedCiReport.toString();
 			LOG.info("Submitting new CI report for pull request {}.", pullRequestID);
 			gitHubActions.submitComment(observedRepository, pullRequestID, comment);
 		}
@@ -186,18 +176,8 @@ public class Core implements AutoCloseable {
 	private Optional<GitHubComment> getCiReportComment(int pullRequestID) throws IOException {
 		LOG.info("Retrieving CI report for pull request {}.", pullRequestID);
 		return StreamSupport.stream(gitHubActions.getComments(observedRepository, pullRequestID, username).spliterator(), false)
-				.filter(comment -> REGEX_PATTERN_CI_REPORT_LINES.matcher(comment.getCommentText()).find())
+				.filter(comment -> CiReport.isCiReportComment(comment.getCommentText()))
 				.findAny();
-	}
-
-	private static Map<String, String> extractCiReport(GitHubComment ciReportComment) {
-		Map<String, String> ciReport = new LinkedHashMap<>();
-
-		Matcher matcher = REGEX_PATTERN_CI_REPORT_LINES.matcher(ciReportComment.getCommentText());
-		while (matcher.find()) {
-			ciReport.put(matcher.group(REGEX_GROUP_COMMIT_HASH), matcher.group(0));
-		}
-		return ciReport;
 	}
 
 	public boolean isPullRequestClosed(int pullRequestID) throws IOException {
@@ -217,8 +197,7 @@ public class Core implements AutoCloseable {
 		LOG.info("Retrieving observed repository state ({}).", observedRepository);
 
 		final List<Build> pullRequestsRequiringBuild = new ArrayList<>();
-		List<Build> pendingBuilds = new ArrayList<>();
-		List<Build> finishedBuilds = new ArrayList<>();
+		final List<CiReport> ciReports = new ArrayList<>();
 		for (GithubPullRequest pullRequest : gitHubActions.getRecentlyUpdatedOpenPullRequests(observedRepository, lastUpdatedAtCutoff)) {
 			final int pullRequestID = pullRequest.getID();
 			final String headCommitHash = pullRequest.getHeadCommitHash();
@@ -226,20 +205,9 @@ public class Core implements AutoCloseable {
 
 			Optional<GitHubComment> ciReport = getCiReportComment(pullRequestID);
 			ciReport.ifPresent(comment -> {
-				Map<String, String> reports = extractCiReport(comment);
-				for (String report : reports.values()) {
-					Matcher matcher = REGEX_PATTERN_CI_REPORT_LINES.matcher(report);
-					if (matcher.matches()) {
-						String commitHash = matcher.group(REGEX_GROUP_COMMIT_HASH);
-						String status = matcher.group(REGEX_GROUP_BUILD_STATUS);
-						if (GitHubCheckerStatus.State.valueOf(status) == GitHubCheckerStatus.State.PENDING) {
-							pendingBuilds.add(new Build(pullRequestID, commitHash, Optional.empty(), new Trigger(Trigger.Type.PUSH, commitHash)));
-						} else {
-							finishedBuilds.add(new Build(pullRequestID, commitHash, Optional.empty(), new Trigger(Trigger.Type.PUSH, commitHash)));
-						}
-					}
-				}
-				reportedCommitHashes.addAll(reports.keySet());
+				CiReport parsedCiReport = CiReport.fromComment(pullRequestID, comment.getCommentText());
+				ciReports.add(parsedCiReport);
+				parsedCiReport.getBuilds().map(build -> build.commitHash).forEach(reportedCommitHashes::add);
 			});
 
 			if (!reportedCommitHashes.contains(headCommitHash)) {
@@ -247,7 +215,7 @@ public class Core implements AutoCloseable {
 			}
 		}
 
-		return new ObservedState(pullRequestsRequiringBuild, pendingBuilds, finishedBuilds);
+		return new ObservedState(pullRequestsRequiringBuild, ciReports);
 	}
 
 	public Build mirrorPullRequest(int pullRequestID) throws Exception {
@@ -300,15 +268,4 @@ public class Core implements AutoCloseable {
 	private static String getGitHubURL(String repository) {
 		return "https://github.com/" + repository + ".git";
 	}
-
-	private static String escapeRegex(String format) {
-		return format
-				.replaceAll("\\[", "\\\\[")
-				.replaceAll("\\(", "\\\\(")
-				.replaceAll("\\)", "\\\\)")
-				.replaceAll("\\*", "\\\\*")
-				// line-endings are standardized in GitHub comments
-				.replaceAll("\n", "(\\\\r\\\\n|\\\\n|\\\\r)");
-	}
-
 }

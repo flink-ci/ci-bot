@@ -23,6 +23,9 @@ public class GitHubCheckerStatus {
 	private final String name;
 
 	public GitHubCheckerStatus(State state, String detailsUrl, String name) {
+		if (state == State.UNKNOWN) {
+			throw new IllegalArgumentException();
+		}
 		this.state = state;
 		this.detailsUrl = detailsUrl;
 		this.name = name;
@@ -44,6 +47,7 @@ public class GitHubCheckerStatus {
 		PENDING,
 		SUCCESS,
 		CANCELED,
-		FAILURE
+		FAILURE,
+		UNKNOWN
 	}
 }

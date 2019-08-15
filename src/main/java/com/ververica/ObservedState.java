@@ -3,23 +3,27 @@ package com.ververica;
 import java.util.List;
 import java.util.stream.Stream;
 
-class ObservedState {
-    private final List<Build> pendingBuilds;
-    private final List<Build> finishedBuilds;
-    private final List<Build> awaitingBuilds;
+import static com.ververica.github.GitHubCheckerStatus.State.PENDING;
 
-    ObservedState(List<Build> awaitingBuilds, List<Build> pendingBuilds, List<Build> finishedBuilds) {
+class ObservedState {
+    private final List<Build> awaitingBuilds;
+    private final List<CiReport> ciReports;
+
+    ObservedState(List<Build> awaitingBuilds, List<CiReport> ciReports) {
         this.awaitingBuilds = awaitingBuilds;
-        this.pendingBuilds = pendingBuilds;
-        this.finishedBuilds = finishedBuilds;
+        this.ciReports = ciReports;
     }
 
     public Stream<Build> getPendingBuilds() {
-        return pendingBuilds.stream();
+        return ciReports.stream()
+                .flatMap(CiReport::getBuilds)
+                .filter(report -> report.status.isPresent() && report.status.get().getState() == PENDING);
     }
 
     public Stream<Build> getFinishedBuilds() {
-        return finishedBuilds.stream();
+        return ciReports.stream()
+                .flatMap(CiReport::getBuilds)
+                .filter(report -> report.status.isPresent() && report.status.get().getState() != PENDING);
     }
 
     public Stream<Build> getAwaitingBuilds() {
