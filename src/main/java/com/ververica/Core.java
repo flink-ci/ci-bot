@@ -125,11 +125,11 @@ public class Core implements AutoCloseable {
 				if (!travisCheck.isPresent()) {
 					LOG.warn("CI branch {} had no Travis check attached.", getCiBranchName(pullRequestID, commitHash));
 					// we can't ignore simply these as otherwise we will mirror these pull requests again
-					pendingBuilds.add(new Build(pullRequestID, commitHash, Optional.empty()));
+					pendingBuilds.add(new Build(pullRequestID, commitHash, Optional.empty(), new Trigger(Trigger.Type.PUSH, commitHash)));
 				} else {
 					GitHubCheckerStatus gitHubCheckerStatus = travisCheck.get();
 
-					Build build = new Build(pullRequestID, commitHash, Optional.of(gitHubCheckerStatus));
+					Build build = new Build(pullRequestID, commitHash, Optional.of(gitHubCheckerStatus), new Trigger(Trigger.Type.PUSH, commitHash));
 					if (gitHubCheckerStatus.getState() == GitHubCheckerStatus.State.PENDING) {
 						pendingBuilds.add(build);
 					} else {
@@ -233,9 +233,9 @@ public class Core implements AutoCloseable {
 						String commitHash = matcher.group(REGEX_GROUP_COMMIT_HASH);
 						String status = matcher.group(REGEX_GROUP_BUILD_STATUS);
 						if (GitHubCheckerStatus.State.valueOf(status) == GitHubCheckerStatus.State.PENDING) {
-							pendingBuilds.add(new Build(pullRequestID, commitHash, Optional.empty()));
+							pendingBuilds.add(new Build(pullRequestID, commitHash, Optional.empty(), new Trigger(Trigger.Type.PUSH, commitHash)));
 						} else {
-							finishedBuilds.add(new Build(pullRequestID, commitHash, Optional.empty()));
+							finishedBuilds.add(new Build(pullRequestID, commitHash, Optional.empty(), new Trigger(Trigger.Type.PUSH, commitHash)));
 						}
 					}
 				}
@@ -243,7 +243,7 @@ public class Core implements AutoCloseable {
 			});
 
 			if (!reportedCommitHashes.contains(headCommitHash)) {
-				pullRequestsRequiringBuild.add(new Build(pullRequestID, headCommitHash, Optional.empty()));
+				pullRequestsRequiringBuild.add(new Build(pullRequestID, headCommitHash, Optional.empty(), new Trigger(Trigger.Type.PUSH, headCommitHash)));
 			}
 		}
 
@@ -272,7 +272,7 @@ public class Core implements AutoCloseable {
 				String.valueOf(pullRequestID),
 				true);
 
-		return new Build(pullRequestID, commitHash, Optional.empty());
+		return new Build(pullRequestID, commitHash, Optional.empty(), new Trigger(Trigger.Type.PUSH, commitHash));
 	}
 
 	public void cancelBuild(Build buildToCancel) {

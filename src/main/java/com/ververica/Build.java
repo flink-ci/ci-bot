@@ -9,11 +9,13 @@ class Build {
 	public final int pullRequestID;
 	public final String commitHash;
 	public final Optional<GitHubCheckerStatus> status;
+	public final Trigger trigger;
 
-	Build(int pullRequestID, String commitHash, Optional<GitHubCheckerStatus> status) {
+	Build(int pullRequestID, String commitHash, Optional<GitHubCheckerStatus> status, Trigger trigger) {
 		this.pullRequestID = pullRequestID;
 		this.commitHash = commitHash;
 		this.status = status;
+		this.trigger = trigger;
 	}
 
 	@Override
@@ -26,7 +28,8 @@ class Build {
 		}
 		Build build = (Build) o;
 		return pullRequestID == build.pullRequestID &&
-				Objects.equals(commitHash, build.commitHash);
+				Objects.equals(commitHash, build.commitHash) &&
+				trigger == build.trigger;
 	}
 
 	@Override
