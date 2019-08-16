@@ -81,4 +81,28 @@ public class TravisActionsImpl implements TravisActions {
 			LOG.error("Failed to cancel build {}.", buildId, e);
 		}
 	}
+
+	@Override
+	public void restartBuild(String detailsUrl) {
+		final String buildId = detailsUrl.substring(detailsUrl.lastIndexOf('/') + 1);
+
+		try {
+			try (Response cancelResponse = okHttpClient.newCall(
+					new Request.Builder()
+							.url("https://api.travis-ci.com/v3/build/" + buildId + "/restart")
+							.header("Authorization", "token " + authorizationToken)
+							.header("Travis-API-Version", "3")
+							.post(RequestBody.create(null, ""))
+							.build()
+			).execute()) {
+				if (cancelResponse.isSuccessful()) {
+					LOG.debug("Restarted build {}.", buildId);
+				} else {
+					LOG.debug("Restart response for build {}: {}; {}.", buildId, cancelResponse.toString(), cancelResponse.body().string());
+				}
+			}
+		} catch (IOException e) {
+			LOG.error("Failed to restart build {}.", buildId, e);
+		}
+	}
 }

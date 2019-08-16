@@ -20,5 +20,7 @@ package com.ververica.travis;
 public interface TravisActions extends AutoCloseable {
 	void cancelBuild(String detailsUrl);
 
+	void restartBuild(String detailsUrl);
+
 	void close();
 }
