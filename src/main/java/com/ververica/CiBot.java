@@ -173,10 +173,10 @@ public class CiBot implements Runnable, AutoCloseable {
 		for (Map.Entry<Integer, List<Build>> pendingBuilds : pendingBuildsPerPullRequestId.entrySet()) {
 			final int pullRequestID = pendingBuilds.getKey();
 			if (core.isPullRequestClosed(pullRequestID)) {
-				LOG.info("Canceling pending builds for PullRequest {} since new PullRequest was closed.", pullRequestID);
+				LOG.info("Canceling pending builds for PullRequest {} since the PullRequest was closed.", pullRequestID);
 				cancelBuilds(pendingBuilds.getValue());
 			} else if (pullRequestsWithNewBuilds.contains(pullRequestID)) {
-				LOG.info("Canceling pending builds for PullRequest {} since new build was triggered.", pullRequestID);
+				LOG.info("Canceling pending builds for PullRequest {} since a new build was triggered.", pullRequestID);
 				cancelBuilds(pendingBuilds.getValue());
 			}
 		}
