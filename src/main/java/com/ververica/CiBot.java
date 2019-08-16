@@ -154,12 +154,6 @@ public class CiBot implements Runnable, AutoCloseable {
 		final List<Build> builds = resolveDanglingBuilds(ciState, observedRepositoryState);
 		logDanglingBuilds(builds);
 
-		final List<Build> newlyFinishedBuilds = resolveFinishedBuilds(ciState, observedRepositoryState);
-		for (Build newlyFinishedBuild : newlyFinishedBuilds) {
-			core.deleteCiBranch(newlyFinishedBuild);
-			Thread.sleep(DELAY_MILLI_SECONDS);
-		}
-
 		final List<Build> requiredBuilds = resolveRequiredBuilds(ciState, observedRepositoryState);
 		logRequiredBuilds(requiredBuilds);
 		final Set<Integer> pullRequestsWithNewBuilds = new HashSet<>();
@@ -180,6 +174,18 @@ public class CiBot implements Runnable, AutoCloseable {
 				cancelBuilds(pendingBuilds.getValue());
 			}
 		}
+
+		final Map<Integer, List<Build>> finishedBuildsPerPullRequestId = ciState.getFinishedBuilds().collect(Collectors.groupingBy(build -> build.pullRequestID));
+		for (Map.Entry<Integer, List<Build>> finishedBuilds : finishedBuildsPerPullRequestId.entrySet()) {
+			final int pullRequestID = finishedBuilds.getKey();
+			if (core.isPullRequestClosed(pullRequestID)) {
+				LOG.info("Deleting branches for PullRequest {} since PullRequest was closed.", pullRequestID);
+				for (Build finishedBuild : finishedBuilds.getValue()) {
+					core.deleteCiBranch(finishedBuild);
+					Thread.sleep(DELAY_MILLI_SECONDS);
+				}
+			}
+		}
 	}
 
 	private void cancelBuilds(Iterable<Build> builds) throws InterruptedException {
@@ -187,12 +193,6 @@ public class CiBot implements Runnable, AutoCloseable {
 			core.cancelBuild(build);
 			Thread.sleep(DELAY_MILLI_SECONDS);
 		}
-	}
-
-	private static List<Build> resolveFinishedBuilds(CIState ciState, ObservedState observedState) {
-		return observedState.getFinishedBuilds()
-				.filter(build -> ciState.getFinishedBuilds().anyMatch(build::equals))
-				.collect(Collectors.toList());
 	}
 
 	private static List<Build> resolveRequiredBuilds(CIState ciState, ObservedState observedState) {
