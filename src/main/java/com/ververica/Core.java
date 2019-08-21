@@ -27,12 +27,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.StringWriter;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
-import java.util.LinkedHashMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -55,6 +54,9 @@ public class Core implements AutoCloseable {
 	private static final String REGEX_GROUP_COMMIT_HASH = "CommitHash";
 	private static final Pattern REGEX_PATTERN_CI_BRANCH = Pattern.compile(
 			"ci_(?<" + REGEX_GROUP_PULL_REQUEST_ID + ">[0-9]+)_(?<" + REGEX_GROUP_COMMIT_HASH + ">[0-9a-f]+)", Pattern.DOTALL);
+
+	private static final String REGEX_GROUP_COMMAND = "command";
+	private static final Pattern REGEX_PATTERN_COMMAND_MENTION = Pattern.compile("@flinkbot run (?<" + REGEX_GROUP_COMMAND + ">.*)", Pattern.CASE_INSENSITIVE);
 
 	private static final String TEMPLATE_MESSAGE_LINE = "* %s : %s [Build](%s)\n";
 
@@ -95,65 +97,13 @@ public class Core implements AutoCloseable {
 		LOG.info("Shutting down.");
 	}
 
-	public CIState fetchCiState() throws Exception {
-		LOG.info("Retrieving CI repository state ({}).", ciRepository);
-
-		final List<Build> pendingBuilds = new ArrayList<>();
-		final List<Build> finishedBuilds = new ArrayList<>();
-		for (String branch : gitHubActions.getBranches(ciRepository)) {
-			Matcher matcher = REGEX_PATTERN_CI_BRANCH.matcher(branch);
-			if (matcher.matches()) {
-				String commitHash = matcher.group(REGEX_GROUP_COMMIT_HASH);
-				int pullRequestID = Integer.parseInt(matcher.group(REGEX_GROUP_PULL_REQUEST_ID));
-
-				Iterable<GitHubCheckerStatus> commitState = gitHubActions.getCommitState(ciRepository, commitHash);
-				Optional<GitHubCheckerStatus> travisCheck = StreamSupport.stream(commitState.spliterator(), false)
-						.filter(status -> status.getName().contains("Travis CI"))
-						.findAny();
-
-				if (!travisCheck.isPresent()) {
-					LOG.warn("CI branch {} had no Travis check attached.", getCiBranchName(pullRequestID, commitHash));
-					// we can't ignore simply these as otherwise we will mirror these pull requests again
-					pendingBuilds.add(new Build(pullRequestID, commitHash, Optional.empty(), new Trigger(Trigger.Type.PUSH, commitHash)));
-				} else {
-					GitHubCheckerStatus gitHubCheckerStatus = travisCheck.get();
-
-					Build build = new Build(pullRequestID, commitHash, Optional.of(gitHubCheckerStatus), new Trigger(Trigger.Type.PUSH, commitHash));
-					if (gitHubCheckerStatus.getState() == GitHubCheckerStatus.State.PENDING) {
-						pendingBuilds.add(build);
-					} else {
-						finishedBuilds.add(build);
-					}
-				}
-			}
-			Thread.sleep(operationDelay);
-		}
-
-		final CIState ciState = new CIState(pendingBuilds, finishedBuilds);
-		LOG.info(ciState.toString());
-		return ciState;
-	}
-
-	public void updateCiReport(int pullRequestID, List<Build> builds) throws IOException {
-		Map<String, String> reportsPerCommit = new LinkedHashMap<>();
-		for (Build build : builds) {
-			if (!build.status.isPresent()) {
-				continue;
-			}
-			GitHubCheckerStatus status = build.status.get();
-			String commitHash = build.commitHash;
-			reportsPerCommit.put(commitHash, String.format(TEMPLATE_MESSAGE_LINE, commitHash, status.getState(), status.getDetailsUrl()));
-		}
-		logReports(String.format("New reports for pull request %s:", pullRequestID), reportsPerCommit);
-
+	public void updateCiReport(final CiReport parsedCiReport) throws IOException {
+		final int pullRequestID = parsedCiReport.getPullRequestID();
 		Optional<GitHubComment> ciReport = getCiReportComment(pullRequestID);
 
 		if (ciReport.isPresent()) {
 			GitHubComment gitHubComment = ciReport.get();
 			LOG.trace("Existing CI report:\n{}", gitHubComment.getCommentText());
-
-			CiReport parsedCiReport = CiReport.fromComment(pullRequestID, gitHubComment.getCommentText());
-			builds.forEach(parsedCiReport::add);
 
 			String comment = parsedCiReport.toString();
 			LOG.trace("New CI report:\n{}", comment);
@@ -165,8 +115,6 @@ public class Core implements AutoCloseable {
 				gitHubComment.update(comment);
 			}
 		} else {
-			CiReport parsedCiReport = CiReport.empty(pullRequestID);
-			builds.forEach(parsedCiReport::add);
 			String comment = parsedCiReport.toString();
 			LOG.info("Submitting new CI report for pull request {}.", pullRequestID);
 			gitHubActions.submitComment(observedRepository, pullRequestID, comment);
@@ -196,26 +144,59 @@ public class Core implements AutoCloseable {
 	public ObservedState fetchGithubState(Date lastUpdatedAtCutoff) throws IOException {
 		LOG.info("Retrieving observed repository state ({}).", observedRepository);
 
-		final List<Build> pullRequestsRequiringBuild = new ArrayList<>();
+		Iterable<GithubPullRequest> recentlyUpdatedOpenPullRequests = gitHubActions.getRecentlyUpdatedOpenPullRequests(observedRepository, lastUpdatedAtCutoff);
+		Map<Integer, GithubPullRequest> pullRequestsToProcessByID = new HashMap<>();
+		recentlyUpdatedOpenPullRequests.forEach(pr -> pullRequestsToProcessByID.put(pr.getID(), pr));
+		StreamSupport.stream(gitHubActions.getBranches(ciRepository).spliterator(), false)
+				.map(REGEX_PATTERN_CI_BRANCH::matcher)
+				.filter(Matcher::matches)
+				.map(matcher -> new GithubPullRequest(
+						Integer.parseInt(matcher.group(REGEX_GROUP_PULL_REQUEST_ID)),
+						Date.from(Instant.now()),
+						matcher.group(REGEX_GROUP_COMMIT_HASH)))
+				.filter(pr -> !pullRequestsToProcessByID.containsKey(pr.getID()))
+				.forEach(pr -> pullRequestsToProcessByID.put(pr.getID(), pr));
+
 		final List<CiReport> ciReports = new ArrayList<>();
-		for (GithubPullRequest pullRequest : gitHubActions.getRecentlyUpdatedOpenPullRequests(observedRepository, lastUpdatedAtCutoff)) {
+		for (GithubPullRequest pullRequest : pullRequestsToProcessByID.values()) {
 			final int pullRequestID = pullRequest.getID();
 			final String headCommitHash = pullRequest.getHeadCommitHash();
 			final Collection<String> reportedCommitHashes = new ArrayList<>();
 
-			Optional<GitHubComment> ciReport = getCiReportComment(pullRequestID);
-			ciReport.ifPresent(comment -> {
-				CiReport parsedCiReport = CiReport.fromComment(pullRequestID, comment.getCommentText());
-				ciReports.add(parsedCiReport);
-				parsedCiReport.getBuilds().map(build -> build.commitHash).forEach(reportedCommitHashes::add);
-			});
+			Optional<GitHubComment> ciReportComment = getCiReportComment(pullRequestID);
+			final CiReport ciReport;
+			if (ciReportComment.isPresent()) {
+				ciReport = CiReport.fromComment(pullRequestID, ciReportComment.get().getCommentText());
+				ciReport.getBuilds().map(build -> build.commitHash).forEach(reportedCommitHashes::add);
+
+				ciReport.getBuilds()
+						.filter(build -> build.status.isPresent())
+						.filter(build -> build.status.get().getState() == GitHubCheckerStatus.State.PENDING || build.status.get().getState() == GitHubCheckerStatus.State.UNKNOWN)
+						.forEach(build -> {
+							String commitHash = build.commitHash;
+
+							Iterable<GitHubCheckerStatus> commitState = gitHubActions.getCommitState(ciRepository, commitHash);
+							Optional<GitHubCheckerStatus> travisCheck = StreamSupport.stream(commitState.spliterator(), false)
+									.filter(status -> status.getName().contains("Travis CI"))
+									.findAny();
+
+							travisCheck.ifPresent(gitHubCheckerStatus -> {
+								if (gitHubCheckerStatus.getState() != build.status.get().getState()) {
+									ciReport.add(new Build(build.pullRequestID, build.commitHash, travisCheck, build.trigger));
+								}
+							});
+						});
+			} else {
+				ciReport = CiReport.empty(pullRequestID);
+			}
 
 			if (!reportedCommitHashes.contains(headCommitHash)) {
-				pullRequestsRequiringBuild.add(new Build(pullRequestID, headCommitHash, Optional.empty(), new Trigger(Trigger.Type.PUSH, headCommitHash)));
+				ciReport.add(new Build(pullRequestID, headCommitHash, Optional.empty(), new Trigger(Trigger.Type.PUSH, headCommitHash)));
 			}
+			ciReports.add(ciReport);
 		}
 
-		return new ObservedState(pullRequestsRequiringBuild, ciReports);
+		return new ObservedState(ciReports);
 	}
 
 	public Build mirrorPullRequest(int pullRequestID) throws Exception {
@@ -249,16 +230,6 @@ public class Core implements AutoCloseable {
 			LOG.info("Canceling build {}@{}.", buildToCancel.pullRequestID, buildToCancel.commitHash);
 			travisActions.cancelBuild(status.getDetailsUrl());
 		}
-	}
-
-	private static void logReports(String prefix, Map<String, String> reports) {
-		final StringWriter sw = new StringWriter();
-		try (PrintWriter pw = new PrintWriter(sw)) {
-			pw.println(prefix);
-
-			reports.values().forEach(pw::print);
-		}
-		LOG.debug(sw.toString());
 	}
 
 	private static String getCiBranchName(long pullRequestID, String commitHash) {

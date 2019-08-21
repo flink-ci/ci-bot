@@ -19,6 +19,7 @@ package com.ververica;
 
 import com.beust.jcommander.JCommander;
 import com.ververica.git.GitActionsImpl;
+import com.ververica.github.GitHubCheckerStatus;
 import com.ververica.github.GithubActionsImpl;
 import com.ververica.travis.TravisActionsImpl;
 import org.apache.commons.io.FileUtils;
@@ -29,8 +30,7 @@ import org.kohsuke.github.HttpException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.PrintWriter;
-import java.io.StringWriter;
+import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -40,9 +40,9 @@ import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * A bot that mirrors pull requests opened against one repository (so called "observed repository") to branches in
@@ -139,31 +139,39 @@ public class CiBot implements Runnable, AutoCloseable {
 	}
 
 	private void tick(Date lastUpdateTime) throws Exception {
-		final CIState ciState = core.fetchCiState();
-
-		Map<Integer, List<Build>> updatesPerPullRequest = Stream
-				.concat(ciState.getPendingBuilds(), ciState.getFinishedBuilds())
-				.collect(Collectors.groupingBy(build -> build.pullRequestID));
-		for (Map.Entry<Integer, List<Build>> entry : updatesPerPullRequest.entrySet()) {
-			core.updateCiReport(entry.getKey(), entry.getValue());
-			Thread.sleep(DELAY_MILLI_SECONDS);
-		}
-
 		final ObservedState observedRepositoryState = core.fetchGithubState(lastUpdateTime);
 
-		final List<Build> builds = resolveDanglingBuilds(ciState, observedRepositoryState);
-		logDanglingBuilds(builds);
-
-		final List<Build> requiredBuilds = resolveRequiredBuilds(ciState, observedRepositoryState);
-		logRequiredBuilds(requiredBuilds);
 		final Set<Integer> pullRequestsWithNewBuilds = new HashSet<>();
-		for (Build build : requiredBuilds) {
-			core.mirrorPullRequest(build.pullRequestID);
-			pullRequestsWithNewBuilds.add(build.pullRequestID);
-			Thread.sleep(DELAY_MILLI_SECONDS);
+		List<CiReport> ciReports = observedRepositoryState.getCiReports().collect(Collectors.toList());
+		for (CiReport ciReport : ciReports) {
+			List<Build> requiredBuilds = ciReport.getBuilds().filter(build -> !build.status.isPresent()).collect(Collectors.toList());
+			for (Build build : requiredBuilds) {
+				core.mirrorPullRequest(build.pullRequestID);
+				pullRequestsWithNewBuilds.add(build.pullRequestID);
+				ciReport.add(new Build(build.pullRequestID, build.commitHash, Optional.of(new GitHubCheckerStatus(GitHubCheckerStatus.State.UNKNOWN, "TBD", "Travis CI")), build.trigger));
+				Thread.sleep(DELAY_MILLI_SECONDS);
+			}
 		}
 
-		final Map<Integer, List<Build>> pendingBuildsPerPullRequestId = ciState.getPendingBuilds().collect(Collectors.groupingBy(build -> build.pullRequestID));
+		observedRepositoryState.getCiReports().forEach(ciReport -> {
+			try {
+				if (ciReport.getBuilds().anyMatch(build -> true)) {
+					core.updateCiReport(ciReport);
+				} else {
+					LOG.debug("Skipping CI report update for pull request {} update since report contains no builds.", ciReport.getPullRequestID());
+				}
+			} catch (IOException e) {
+				LOG.debug("Error while updating CI report.", e);
+			}
+
+			try {
+				Thread.sleep(DELAY_MILLI_SECONDS);
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+			}
+		});
+
+		final Map<Integer, List<Build>> pendingBuildsPerPullRequestId = observedRepositoryState.getPendingBuilds().collect(Collectors.groupingBy(build -> build.pullRequestID));
 		for (Map.Entry<Integer, List<Build>> pendingBuilds : pendingBuildsPerPullRequestId.entrySet()) {
 			final int pullRequestID = pendingBuilds.getKey();
 			if (core.isPullRequestClosed(pullRequestID)) {
@@ -175,7 +183,7 @@ public class CiBot implements Runnable, AutoCloseable {
 			}
 		}
 
-		final Map<Integer, List<Build>> finishedBuildsPerPullRequestId = ciState.getFinishedBuilds().collect(Collectors.groupingBy(build -> build.pullRequestID));
+		final Map<Integer, List<Build>> finishedBuildsPerPullRequestId = observedRepositoryState.getFinishedBuilds().collect(Collectors.groupingBy(build -> build.pullRequestID));
 		for (Map.Entry<Integer, List<Build>> finishedBuilds : finishedBuildsPerPullRequestId.entrySet()) {
 			final int pullRequestID = finishedBuilds.getKey();
 			if (core.isPullRequestClosed(pullRequestID)) {
@@ -193,43 +201,5 @@ public class CiBot implements Runnable, AutoCloseable {
 			core.cancelBuild(build);
 			Thread.sleep(DELAY_MILLI_SECONDS);
 		}
-	}
-
-	private static List<Build> resolveRequiredBuilds(CIState ciState, ObservedState observedState) {
-		return observedState.getAwaitingBuilds()
-				.filter(build -> ciState.getPendingBuilds().noneMatch(build::equals))
-				.filter(build -> ciState.getFinishedBuilds().noneMatch(build::equals))
-				.collect(Collectors.toList());
-	}
-
-	private static List<Build> resolveDanglingBuilds(CIState ciState, ObservedState observedState) {
-		return observedState.getPendingBuilds()
-				.filter(build -> ciState.getPendingBuilds().noneMatch(build::equals))
-				.filter(build -> ciState.getFinishedBuilds().noneMatch(build::equals))
-				.collect(Collectors.toList());
-	}
-
-	private static void logDanglingBuilds(List<Build> danglingBuilds) {
-		if (!danglingBuilds.isEmpty()) {
-			final StringWriter sw = new StringWriter();
-			try (PrintWriter pw = new PrintWriter(sw)) {
-				pw.println("Observed repository state:");
-
-				pw.println(String.format("\tDangling builds (%s):", danglingBuilds.size()));
-				danglingBuilds.forEach(build -> pw.println("\t\t" + build.pullRequestID + '@' + build.commitHash));
-			}
-			LOG.warn(sw.toString());
-		}
-	}
-
-	private static void logRequiredBuilds(List<Build> requiredBuilds) {
-		final StringWriter sw = new StringWriter();
-		try (PrintWriter pw = new PrintWriter(sw)) {
-			pw.println("Observed repository state:");
-
-			pw.println(String.format("\tRequired builds (%s):", requiredBuilds.size()));
-			requiredBuilds.forEach(build -> pw.println("\t\t" + build.pullRequestID + '@' + build.commitHash));
-		}
-		LOG.info(sw.toString());
 	}
 }

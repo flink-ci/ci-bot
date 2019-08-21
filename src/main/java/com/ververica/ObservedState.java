@@ -6,11 +6,9 @@ import java.util.stream.Stream;
 import static com.ververica.github.GitHubCheckerStatus.State.PENDING;
 
 class ObservedState {
-    private final List<Build> awaitingBuilds;
     private final List<CiReport> ciReports;
 
-    ObservedState(List<Build> awaitingBuilds, List<CiReport> ciReports) {
-        this.awaitingBuilds = awaitingBuilds;
+    ObservedState(List<CiReport> ciReports) {
         this.ciReports = ciReports;
     }
 
@@ -26,7 +24,7 @@ class ObservedState {
                 .filter(report -> report.status.isPresent() && report.status.get().getState() != PENDING);
     }
 
-    public Stream<Build> getAwaitingBuilds() {
-        return awaitingBuilds.stream();
+    public Stream<CiReport> getCiReports() {
+        return ciReports.stream();
     }
 }

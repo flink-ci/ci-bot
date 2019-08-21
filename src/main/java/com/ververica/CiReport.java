@@ -54,6 +54,7 @@ public class CiReport {
 			"(?<" + REGEX_GROUP_BUILD_TRIGGER_TYPE + ">.+)",
 			"(?<" + REGEX_GROUP_BUILD_TRIGGER_ID + ">.+)"));
 
+	private static final String TEMPLATE_USER_DATA_LINE_UNKNOWN = "* %s : %s\n";
 	private static final String TEMPLATE_USER_DATA_LINE = "* %s : %s [Build](%s)\n";
 
 	private static final Pattern REGEX_PATTERN_USER_DATA_LINES = Pattern.compile(String.format(escapeRegex(TEMPLATE_USER_DATA_LINE),
@@ -118,7 +119,10 @@ public class CiReport {
 				GitHubCheckerStatus.State state = GitHubCheckerStatus.State.valueOf(status);
 				final Optional<GitHubCheckerStatus> gitHubCheckerStatus;
 				if (state == GitHubCheckerStatus.State.UNKNOWN) {
-					gitHubCheckerStatus = Optional.empty();
+					gitHubCheckerStatus = Optional.of(new GitHubCheckerStatus(
+							GitHubCheckerStatus.State.UNKNOWN,
+							"TBD",
+							"Travis CI"));
 				} else {
 					gitHubCheckerStatus = Optional.of(new GitHubCheckerStatus(
 							state,
@@ -155,6 +159,10 @@ public class CiReport {
 		return builds.values().stream();
 	}
 
+	public int getPullRequestID() {
+		return pullRequestID;
+	}
+
 	@Override
 	public String toString() {
 		final StringBuilder metaDataSectionBuilder = new StringBuilder();
@@ -179,13 +187,24 @@ public class CiReport {
 		});
 
 		final Map<String, String> uniqueBuildPerHash = new LinkedHashMap<>();
-		builds.values().forEach(build -> build.status.ifPresent(status -> uniqueBuildPerHash.put(
-				build.commitHash,
-				String.format(
-						TEMPLATE_USER_DATA_LINE,
+		builds.values().forEach(build -> build.status.ifPresent(status -> {
+			if (status.getState() == GitHubCheckerStatus.State.UNKNOWN) {
+				uniqueBuildPerHash.put(
 						build.commitHash,
-						status.getState().name(),
-						status.getDetailsUrl()))));
+						String.format(
+								TEMPLATE_USER_DATA_LINE_UNKNOWN,
+								build.commitHash,
+								status.getState().name()));
+			} else {
+				uniqueBuildPerHash.put(
+						build.commitHash,
+						String.format(
+								TEMPLATE_USER_DATA_LINE,
+								build.commitHash,
+								status.getState().name(),
+								status.getDetailsUrl()));
+			}
+		}));
 		final StringBuilder userDataSectionBuilder = new StringBuilder();
 		uniqueBuildPerHash.values().forEach(userDataSectionBuilder::append);
 
