@@ -17,6 +17,8 @@
 
 package com.ververica;
 
+import com.beust.jcommander.JCommander;
+import com.beust.jcommander.Parameters;
 import com.ververica.git.GitActions;
 import com.ververica.github.GitHubActions;
 import com.ververica.github.GitHubCheckerStatus;
@@ -29,14 +31,18 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 /**
@@ -186,6 +192,8 @@ public class Core implements AutoCloseable {
 								}
 							});
 						});
+
+				processManualTriggers(ciReport, pullRequestID);
 			} else {
 				ciReport = CiReport.empty(pullRequestID);
 			}
@@ -197,6 +205,75 @@ public class Core implements AutoCloseable {
 		}
 
 		return new ObservedState(ciReports);
+	}
+
+	private void processManualTriggers(CiReport ciReport, int pullRequestID) {
+		final Stream<GitHubComment> comments;
+		try {
+			comments = gitHubActions.getComments(observedRepository, pullRequestID, REGEX_PATTERN_COMMAND_MENTION);
+		} catch (IOException e) {
+			LOG.debug("Could not retrieve comments for pull request {}.", pullRequestID, e);
+			return;
+		}
+
+		Set<Long> processedComments = ciReport.getBuilds()
+				.map(build -> build.trigger)
+				.filter(trigger -> trigger.getType() == Trigger.Type.MANUAL)
+				.map(Trigger::getId)
+				.mapToLong(Long::parseLong)
+				.boxed()
+				.collect(Collectors.toSet());
+
+		LOG.debug("Processed comments: {}.", processedComments);
+
+		comments.forEach(comment -> {
+			LOG.trace("Processing comment {}.", comment.getId());
+			if (processedComments.contains(comment.getId())) {
+				return;
+			}
+
+			final Matcher matcher = REGEX_PATTERN_COMMAND_MENTION.matcher(comment.getCommentText());
+			if (matcher.find()) {
+				final String[] command = matcher.group(REGEX_GROUP_COMMAND).split(" ");
+
+				JCommander jCommander = new JCommander();
+				jCommander.addCommand(new TravisCommand());
+
+				try {
+					jCommander.parse(command);
+				} catch (Exception e) {
+					LOG.warn("Invalid command ({}), ignoring.", command);
+					return;
+				}
+
+				switch (jCommander.getParsedCommand()) {
+					case TravisCommand.COMMAND_NAME:
+						Optional<Build> lastBuildOptional = ciReport.getBuilds().reduce((first, second) -> second);
+						if (!lastBuildOptional.isPresent()) {
+							LOG.debug("Ignoring Travis run command since no build was triggered yet.");
+						} else {
+							Build lastBuild = lastBuildOptional.get();
+							if (!lastBuild.status.isPresent()) {
+								LOG.debug("Ignoring Travis run command since no build was triggered yet.");
+							} else {
+								GitHubCheckerStatus gitHubCheckerStatus = lastBuild.status.get();
+								travisActions.restartBuild(gitHubCheckerStatus.getDetailsUrl());
+								ciReport.add(new Build(
+										lastBuild.pullRequestID,
+										lastBuild.commitHash,
+										Optional.of(new GitHubCheckerStatus(
+												GitHubCheckerStatus.State.PENDING,
+												gitHubCheckerStatus.getDetailsUrl(),
+												gitHubCheckerStatus.getName())),
+										new Trigger(Trigger.Type.MANUAL, String.valueOf(comment.getId()))));
+							}
+						}
+						break;
+					default:
+						throw new RuntimeException("Unhandled valid command " + Arrays.toString(command) + " .");
+				}
+			}
+		});
 	}
 
 	public Build mirrorPullRequest(int pullRequestID) throws Exception {
@@ -238,5 +315,10 @@ public class Core implements AutoCloseable {
 
 	private static String getGitHubURL(String repository) {
 		return "https://github.com/" + repository + ".git";
+	}
+
+	@Parameters(commandNames = TravisCommand.COMMAND_NAME)
+	private static final class TravisCommand {
+		static final String COMMAND_NAME = "travis";
 	}
 }
