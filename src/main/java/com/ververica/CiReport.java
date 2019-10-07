@@ -29,10 +29,23 @@ public class CiReport {
 			"\n" +
 			"%s";
 
-	private static final String TEMPLATE_CI_REPORT = "" +
+	private static final String TEMPLATE_CI_REPORT_COMMAND_HELP_SECTION = "" +
+			"<details>\n" +
+			"<summary>Bot commands</summary>\n" +
+			"  The @flinkbot bot supports the following commands:\n" +
+			"\n" +
+			" - `@flinkbot run travis` re-run the last Travis build\n" +
+			"</details>";
+
+	private static final String TEMPLATE_CI_REPORT_DATA_SECTION = "" +
 			TEMPLATE_CI_REPORT_META_DATA_SECTION +
-			"\n"
-			+ TEMPLATE_CI_REPORT_USER_DATA_SECTION;
+			"\n" +
+			TEMPLATE_CI_REPORT_USER_DATA_SECTION;
+
+	private static final String TEMPLATE_CI_REPORT = "" +
+			TEMPLATE_CI_REPORT_DATA_SECTION +
+			"\n" +
+			TEMPLATE_CI_REPORT_COMMAND_HELP_SECTION;
 
 	private static final Pattern REGEX_PATTERN_LEGACY_CI_REPORT = Pattern.compile(
 			String.format(escapeRegex(TEMPLATE_CI_REPORT_USER_DATA_SECTION),
@@ -40,9 +53,10 @@ public class CiReport {
 			Pattern.DOTALL);
 
 	private static final Pattern REGEX_PATTERN_CI_REPORT = Pattern.compile(
-			String.format(escapeRegex(TEMPLATE_CI_REPORT),
+			String.format(escapeRegex(TEMPLATE_CI_REPORT_DATA_SECTION),
 					"(?<" + REGEX_GROUP_META_DATA + ">.*)",
-					"(?<" + REGEX_GROUP_USER_DATA + ">.*)"),
+					"(?<" + REGEX_GROUP_USER_DATA + ">.*)")
+					+ "(\n" + TEMPLATE_CI_REPORT_COMMAND_HELP_SECTION + ")?",
 			Pattern.DOTALL);
 
 	private static final String TEMPLATE_META_DATA_LINE = "Hash:%s Status:%s URL:%s TriggerType:%s TriggerID:%s\n";
