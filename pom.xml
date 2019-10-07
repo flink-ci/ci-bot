@@ -60,6 +60,31 @@
                     </execution>
                 </executions>
             </plugin>
+            <plugin>
+                <groupId>pl.project13.maven</groupId>
+                <artifactId>git-commit-id-plugin</artifactId>
+                <!-- Don't use 2.1.14 as it is incompatible with various maven versions -->
+                <version>2.1.10</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>revision</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <excludeProperties>
+                        <excludeProperty>git.build.*</excludeProperty>
+                        <excludeProperty>git.branch.*</excludeProperty>
+                        <excludeProperty>git.remote.*</excludeProperty>
+                    </excludeProperties>
+                    <generateGitPropertiesFilename>target/classes/git.properties</generateGitPropertiesFilename>
+                    <generateGitPropertiesFile>true</generateGitPropertiesFile>
+                    <gitDescribe>
+                        <skip>true</skip>
+                    </gitDescribe>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 

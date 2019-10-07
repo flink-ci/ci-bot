@@ -22,6 +22,7 @@ import com.ververica.git.GitActionsImpl;
 import com.ververica.github.GitHubCheckerStatus;
 import com.ververica.github.GithubActionsImpl;
 import com.ververica.travis.TravisActionsImpl;
+import com.ververica.utils.RevisionInformation;
 import org.apache.commons.io.FileUtils;
 import org.eclipse.jgit.api.errors.TransportException;
 import org.kohsuke.github.GHException;
@@ -74,6 +75,9 @@ public class CiBot implements Runnable, AutoCloseable {
 			LOG.info(helpOutput.toString());
 			return;
 		}
+
+		final RevisionInformation revisionInformation = RevisionInformation.getRevisionInformation();
+		LOG.info("Starting CiBot. Revision: {} Date: {}", revisionInformation.getCommitHash(), revisionInformation.getCommitDate());
 
 		try (final CiBot ciBot = new CiBot(
 				new Core(
