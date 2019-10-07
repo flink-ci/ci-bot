@@ -226,7 +226,7 @@ public class Core implements AutoCloseable {
 
 		LOG.debug("Processed comments: {}.", processedComments);
 
-		comments.forEach(comment -> {
+		comments.filter(gitHubComment -> !CiReport.isCiReportComment(gitHubComment.getCommentText())).forEach(comment -> {
 			LOG.trace("Processing comment {}.", comment.getId());
 			if (processedComments.contains(comment.getId())) {
 				return;
