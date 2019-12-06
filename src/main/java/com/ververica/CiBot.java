@@ -21,7 +21,7 @@ import com.beust.jcommander.JCommander;
 import com.ververica.git.GitActionsImpl;
 import com.ververica.github.GitHubCheckerStatus;
 import com.ververica.github.GithubActionsImpl;
-import com.ververica.travis.TravisActionsImpl;
+import com.ververica.ci.travis.TravisActionsImpl;
 import com.ververica.utils.RevisionInformation;
 import org.apache.commons.io.FileUtils;
 import org.eclipse.jgit.api.errors.TransportException;

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package com.ververica.travis;
+package com.ververica.ci.travis;
 
 import com.ververica.ci.CiActions;
 import okhttp3.Cache;
