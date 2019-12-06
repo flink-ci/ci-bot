@@ -73,17 +73,17 @@ public class Core implements AutoCloseable {
 	private final String githubToken;
 	private final GitActions gitActions;
 	private final GitHubActions gitHubActions;
-	private final CiActions travisActions;
+	private final Map<CiProvider, CiActions> ciActions;
 	private int operationDelay;
 
-	public Core(String observedRepository, String ciRepository, String username, String githubToken, GitActions gitActions, GitHubActions gitHubActions, CiActions travisActions, int operationDelay) throws Exception {
+	public Core(String observedRepository, String ciRepository, String username, String githubToken, GitActions gitActions, GitHubActions gitHubActions, Map<CiProvider, CiActions> ciActions, int operationDelay) throws Exception {
 		this.observedRepository = observedRepository;
 		this.ciRepository = ciRepository;
 		this.username = username;
 		this.githubToken = githubToken;
 		this.gitActions = gitActions;
 		this.gitHubActions = gitHubActions;
-		this.travisActions = travisActions;
+		this.ciActions = ciActions;
 		this.operationDelay = operationDelay;
 
 		setupGit(gitActions, observedRepository, ciRepository);
@@ -100,7 +100,9 @@ public class Core implements AutoCloseable {
 	public void close() {
 		gitActions.close();
 		gitHubActions.close();
-		travisActions.close();
+		for (CiActions ciActions : ciActions.values()) {
+			ciActions.close();
+		}
 		LOG.info("Shutting down.");
 	}
 
@@ -258,7 +260,7 @@ public class Core implements AutoCloseable {
 								LOG.debug("Ignoring Travis run command since no build was triggered yet.");
 							} else {
 								GitHubCheckerStatus gitHubCheckerStatus = lastBuild.status.get();
-								travisActions.restartBuild(gitHubCheckerStatus.getDetailsUrl());
+								ciActions.get(gitHubCheckerStatus.getCiProvider()).restartBuild(gitHubCheckerStatus.getDetailsUrl());
 								ciReport.add(new Build(
 										lastBuild.pullRequestID,
 										lastBuild.commitHash,
@@ -306,7 +308,7 @@ public class Core implements AutoCloseable {
 		if (buildToCancel.status.isPresent()) {
 			final GitHubCheckerStatus status = buildToCancel.status.get();
 			LOG.info("Canceling build {}@{}.", buildToCancel.pullRequestID, buildToCancel.commitHash);
-			travisActions.cancelBuild(status.getDetailsUrl());
+			ciActions.get(status.getCiProvider()).cancelBuild(status.getDetailsUrl());
 		}
 	}
 

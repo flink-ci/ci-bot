@@ -18,6 +18,7 @@
 package com.ververica;
 
 import com.beust.jcommander.JCommander;
+import com.ververica.ci.CiActions;
 import com.ververica.ci.CiProvider;
 import com.ververica.git.GitActionsImpl;
 import com.ververica.github.GitHubCheckerStatus;
@@ -39,6 +40,7 @@ import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -80,6 +82,9 @@ public class CiBot implements Runnable, AutoCloseable {
 		final RevisionInformation revisionInformation = RevisionInformation.getRevisionInformation();
 		LOG.info("Starting CiBot. Revision: {} Date: {}", revisionInformation.getCommitHash(), revisionInformation.getCommitDate());
 
+		final Map<CiProvider, CiActions> ciActions = new HashMap<>();
+		ciActions.put(CiProvider.Travis, new TravisActionsImpl(LOCAL_BASE_PATH.resolve("travis"), arguments.travisToken));
+
 		try (final CiBot ciBot = new CiBot(
 				new Core(
 						arguments.observedRepository,
@@ -88,7 +93,7 @@ public class CiBot implements Runnable, AutoCloseable {
 						arguments.githubToken,
 						new GitActionsImpl(LOCAL_BASE_PATH),
 						new GithubActionsImpl(LOCAL_BASE_PATH.resolve("github"), arguments.githubToken),
-						new TravisActionsImpl(LOCAL_BASE_PATH.resolve("travis"), arguments.travisToken),
+						ciActions,
 						DELAY_MILLI_SECONDS),
 				arguments.pollingIntervalInSeconds,
 				arguments.backlogHours)) {
