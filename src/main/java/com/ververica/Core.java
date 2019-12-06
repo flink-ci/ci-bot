@@ -19,12 +19,12 @@ package com.ververica;
 
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameters;
+import com.ververica.ci.CiActions;
 import com.ververica.git.GitActions;
 import com.ververica.github.GitHubActions;
 import com.ververica.github.GitHubCheckerStatus;
 import com.ververica.github.GitHubComment;
 import com.ververica.github.GithubPullRequest;
-import com.ververica.travis.TravisActions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -72,10 +72,10 @@ public class Core implements AutoCloseable {
 	private final String githubToken;
 	private final GitActions gitActions;
 	private final GitHubActions gitHubActions;
-	private final TravisActions travisActions;
+	private final CiActions travisActions;
 	private int operationDelay;
 
-	public Core(String observedRepository, String ciRepository, String username, String githubToken, GitActions gitActions, GitHubActions gitHubActions, TravisActions travisActions, int operationDelay) throws Exception {
+	public Core(String observedRepository, String ciRepository, String username, String githubToken, GitActions gitActions, GitHubActions gitHubActions, CiActions travisActions, int operationDelay) throws Exception {
 		this.observedRepository = observedRepository;
 		this.ciRepository = ciRepository;
 		this.username = username;

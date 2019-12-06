@@ -17,6 +17,7 @@
 
 package com.ververica.travis;
 
+import com.ververica.ci.CiActions;
 import okhttp3.Cache;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -28,7 +29,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Path;
 
-public class TravisActionsImpl implements TravisActions {
+public class TravisActionsImpl implements CiActions {
 	private static final Logger LOG = LoggerFactory.getLogger(TravisActionsImpl.class);
 
 	private final Cache cache;

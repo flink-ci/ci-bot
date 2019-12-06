@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-package com.ververica.travis;
+package com.ververica.ci;
 
-public interface TravisActions extends AutoCloseable {
+public interface CiActions extends AutoCloseable {
 	void cancelBuild(String detailsUrl);
 
 	void restartBuild(String detailsUrl);
