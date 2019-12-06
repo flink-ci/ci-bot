@@ -1,5 +1,6 @@
 package com.ververica;
 
+import com.ververica.ci.CiProvider;
 import com.ververica.github.GitHubCheckerStatus;
 
 import java.util.LinkedHashMap;
@@ -116,7 +117,7 @@ public class CiReport {
 						Optional.of(new GitHubCheckerStatus(
 								GitHubCheckerStatus.State.valueOf(status),
 								url,
-								"Travis CI")),
+								CiProvider.fromUrl(url))),
 						new Trigger(triggerType, triggerID)));
 			}
 		} else {
@@ -136,12 +137,12 @@ public class CiReport {
 					gitHubCheckerStatus = Optional.of(new GitHubCheckerStatus(
 							GitHubCheckerStatus.State.UNKNOWN,
 							"TBD",
-							"Travis CI"));
+							CiProvider.Unknown));
 				} else {
 					gitHubCheckerStatus = Optional.of(new GitHubCheckerStatus(
 							state,
 							url,
-							"Travis CI"));
+							CiProvider.fromUrl(url)));
 				}
 
 				builds.put(commitHash + triggerType + triggerID, new Build(

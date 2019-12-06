@@ -20,6 +20,7 @@ package com.ververica;
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameters;
 import com.ververica.ci.CiActions;
+import com.ververica.ci.CiProvider;
 import com.ververica.git.GitActions;
 import com.ververica.github.GitHubActions;
 import com.ververica.github.GitHubCheckerStatus;
@@ -182,13 +183,13 @@ public class Core implements AutoCloseable {
 							String commitHash = build.commitHash;
 
 							Iterable<GitHubCheckerStatus> commitState = gitHubActions.getCommitState(ciRepository, commitHash);
-							Optional<GitHubCheckerStatus> travisCheck = StreamSupport.stream(commitState.spliterator(), false)
-									.filter(status -> status.getName().contains("Travis CI"))
+							Optional<GitHubCheckerStatus> ciCheck = StreamSupport.stream(commitState.spliterator(), false)
+									.filter(status -> status.getCiProvider() != CiProvider.Unknown)
 									.findAny();
 
-							travisCheck.ifPresent(gitHubCheckerStatus -> {
+							ciCheck.ifPresent(gitHubCheckerStatus -> {
 								if (gitHubCheckerStatus.getState() != build.status.get().getState()) {
-									ciReport.add(new Build(build.pullRequestID, build.commitHash, travisCheck, build.trigger));
+									ciReport.add(new Build(build.pullRequestID, build.commitHash, ciCheck, build.trigger));
 								}
 							});
 						});
@@ -264,7 +265,7 @@ public class Core implements AutoCloseable {
 										Optional.of(new GitHubCheckerStatus(
 												GitHubCheckerStatus.State.PENDING,
 												gitHubCheckerStatus.getDetailsUrl(),
-												gitHubCheckerStatus.getName())),
+												gitHubCheckerStatus.getCiProvider())),
 										new Trigger(Trigger.Type.MANUAL, String.valueOf(comment.getId()))));
 							}
 						}

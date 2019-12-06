@@ -17,15 +17,17 @@
 
 package com.ververica.github;
 
+import com.ververica.ci.CiProvider;
+
 public class GitHubCheckerStatus {
 	private final State state;
 	private final String detailsUrl;
-	private final String name;
+	private final CiProvider ciProvider;
 
-	public GitHubCheckerStatus(State state, String detailsUrl, String name) {
+	public GitHubCheckerStatus(State state, String detailsUrl, CiProvider ciProvider) {
 		this.state = state;
 		this.detailsUrl = detailsUrl;
-		this.name = name;
+		this.ciProvider = ciProvider;
 	}
 
 	public State getState() {
@@ -36,8 +38,8 @@ public class GitHubCheckerStatus {
 		return detailsUrl;
 	}
 
-	public String getName() {
-		return name;
+	public CiProvider getCiProvider() {
+		return ciProvider;
 	}
 
 	public enum State {

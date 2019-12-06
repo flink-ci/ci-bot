@@ -19,6 +19,7 @@ package com.ververica.github;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ververica.ci.CiProvider;
 import okhttp3.Cache;
 import okhttp3.OkHttpClient;
 import okhttp3.OkUrlFactory;
@@ -121,11 +122,10 @@ public class GithubActionsImpl implements GitHubActions {
 					final JsonNode detailsUrlNode = next.get("details_url");
 					final String detailsUrl = detailsUrlNode.asText();
 
-					final JsonNode nameNode = next.get("name");
-					final String name = nameNode.asText();
+					final CiProvider ciProvider = CiProvider.fromSlug(next.get("app").get("slug").asText());
 
 					if (status != GHStatus.COMPLETED) {
-						checkerStatusList.add(new GitHubCheckerStatus(GitHubCheckerStatus.State.PENDING, detailsUrl, name));
+						checkerStatusList.add(new GitHubCheckerStatus(GitHubCheckerStatus.State.PENDING, detailsUrl, ciProvider));
 					} else {
 						if (!conclusion.isPresent()) {
 							LOG.warn("Completed check did not have conclusion attached.");
@@ -142,7 +142,7 @@ public class GithubActionsImpl implements GitHubActions {
 									state = GitHubCheckerStatus.State.FAILURE;
 									break;
 							}
-							checkerStatusList.add(new GitHubCheckerStatus(state, detailsUrl, name));
+							checkerStatusList.add(new GitHubCheckerStatus(state, detailsUrl, ciProvider));
 						}
 					}
 				}

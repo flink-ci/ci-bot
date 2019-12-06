@@ -18,6 +18,7 @@
 package com.ververica;
 
 import com.beust.jcommander.JCommander;
+import com.ververica.ci.CiProvider;
 import com.ververica.git.GitActionsImpl;
 import com.ververica.github.GitHubCheckerStatus;
 import com.ververica.github.GithubActionsImpl;
@@ -152,7 +153,7 @@ public class CiBot implements Runnable, AutoCloseable {
 			for (Build build : requiredBuilds) {
 				core.mirrorPullRequest(build.pullRequestID);
 				pullRequestsWithNewBuilds.add(build.pullRequestID);
-				ciReport.add(new Build(build.pullRequestID, build.commitHash, Optional.of(new GitHubCheckerStatus(GitHubCheckerStatus.State.UNKNOWN, "TBD", "Travis CI")), build.trigger));
+				ciReport.add(new Build(build.pullRequestID, build.commitHash, Optional.of(new GitHubCheckerStatus(GitHubCheckerStatus.State.UNKNOWN, "TBD", CiProvider.Unknown)), build.trigger));
 				Thread.sleep(DELAY_MILLI_SECONDS);
 			}
 		}
