@@ -178,6 +178,7 @@ public class Core implements AutoCloseable {
 				ciReport = CiReport.fromComment(pullRequestID, ciReportComment.get().getCommentText());
 				ciReport.getBuilds().map(build -> build.commitHash).forEach(reportedCommitHashes::add);
 
+				final Collection<Build> buildsToAdd = new ArrayList<>();
 				ciReport.getBuilds()
 						.filter(build -> build.status.isPresent())
 						.filter(build -> build.status.get().getState() == GitHubCheckerStatus.State.PENDING || build.status.get().getState() == GitHubCheckerStatus.State.UNKNOWN)
@@ -185,16 +186,15 @@ public class Core implements AutoCloseable {
 							String commitHash = build.commitHash;
 
 							Iterable<GitHubCheckerStatus> commitState = gitHubActions.getCommitState(ciRepository, commitHash);
-							Optional<GitHubCheckerStatus> ciCheck = StreamSupport.stream(commitState.spliterator(), false)
+							StreamSupport.stream(commitState.spliterator(), false)
 									.filter(status -> status.getCiProvider() != CiProvider.Unknown)
-									.findAny();
-
-							ciCheck.ifPresent(gitHubCheckerStatus -> {
-								if (gitHubCheckerStatus.getState() != build.status.get().getState()) {
-									ciReport.add(new Build(build.pullRequestID, build.commitHash, ciCheck, build.trigger));
-								}
-							});
+									.forEach(gitHubCheckerStatus -> {
+										if (gitHubCheckerStatus.getState() != build.status.get().getState()) {
+											buildsToAdd.add(new Build(build.pullRequestID, build.commitHash, Optional.of(gitHubCheckerStatus), build.trigger));
+										}
+									});
 						});
+				buildsToAdd.forEach(ciReport::add);
 
 				processManualTriggers(ciReport, pullRequestID);
 			} else {
@@ -251,32 +251,38 @@ public class Core implements AutoCloseable {
 
 				switch (jCommander.getParsedCommand()) {
 					case TravisCommand.COMMAND_NAME:
-						Optional<Build> lastBuildOptional = ciReport.getBuilds().reduce((first, second) -> second);
-						if (!lastBuildOptional.isPresent()) {
-							LOG.debug("Ignoring Travis run command since no build was triggered yet.");
-						} else {
-							Build lastBuild = lastBuildOptional.get();
-							if (!lastBuild.status.isPresent()) {
-								LOG.debug("Ignoring Travis run command since no build was triggered yet.");
-							} else {
-								GitHubCheckerStatus gitHubCheckerStatus = lastBuild.status.get();
-								ciActions.get(gitHubCheckerStatus.getCiProvider()).restartBuild(gitHubCheckerStatus.getDetailsUrl());
-								ciReport.add(new Build(
-										lastBuild.pullRequestID,
-										lastBuild.commitHash,
-										Optional.of(new GitHubCheckerStatus(
-												GitHubCheckerStatus.State.PENDING,
-												gitHubCheckerStatus.getDetailsUrl(),
-												gitHubCheckerStatus.getCiProvider())),
-										new Trigger(Trigger.Type.MANUAL, String.valueOf(comment.getId()))));
-							}
-						}
+						restartBuild(CiProvider.Travis, ciReport, comment);
 						break;
 					default:
 						throw new RuntimeException("Unhandled valid command " + Arrays.toString(command) + " .");
 				}
 			}
 		});
+	}
+
+	private void restartBuild(CiProvider ciProvider, CiReport ciReport, GitHubComment comment) {
+		Optional<Build> lastBuildOptional = ciReport.getBuilds()
+				.filter(build -> build.status.map(s -> s.getCiProvider() == ciProvider).orElse(false))
+				.reduce((first, second) -> second);
+		if (!lastBuildOptional.isPresent()) {
+			LOG.debug("Ignoring {} run command since no build was triggered yet.", ciProvider.getName());
+		} else {
+			Build lastBuild = lastBuildOptional.get();
+			if (!lastBuild.status.isPresent()) {
+				LOG.debug("Ignoring {} run command since no build was triggered yet.", ciProvider.getName());
+			} else {
+				GitHubCheckerStatus gitHubCheckerStatus = lastBuild.status.get();
+				ciActions.get(gitHubCheckerStatus.getCiProvider()).restartBuild(gitHubCheckerStatus.getDetailsUrl());
+				ciReport.add(new Build(
+						lastBuild.pullRequestID,
+						lastBuild.commitHash,
+						Optional.of(new GitHubCheckerStatus(
+								GitHubCheckerStatus.State.PENDING,
+								gitHubCheckerStatus.getDetailsUrl(),
+								gitHubCheckerStatus.getCiProvider())),
+						new Trigger(Trigger.Type.MANUAL, String.valueOf(comment.getId()))));
+			}
+		}
 	}
 
 	public Build mirrorPullRequest(int pullRequestID) throws Exception {

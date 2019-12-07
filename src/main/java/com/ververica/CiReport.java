@@ -3,11 +3,16 @@ package com.ververica;
 import com.ververica.ci.CiProvider;
 import com.ververica.github.GitHubCheckerStatus;
 
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class CiReport {
@@ -69,8 +74,10 @@ public class CiReport {
 			"(?<" + REGEX_GROUP_BUILD_TRIGGER_TYPE + ">.+)",
 			"(?<" + REGEX_GROUP_BUILD_TRIGGER_ID + ">.+)"));
 
-	private static final String TEMPLATE_USER_DATA_LINE_UNKNOWN = "* %s : %s\n";
-	private static final String TEMPLATE_USER_DATA_LINE = "* %s : %s [Build](%s)\n";
+	// bf9a31483c0d55c968f65b8ca4a11557f52de456 [Travis CI](https://travis-ci.com/flink-ci/flink/builds/138727067) FAILURE
+	private static final String TEMPLATE_USER_DATA_LINE = "* %s %s\n";
+	// Travis CI [FAILURE](https://travis-ci.com/flink-ci/flink/builds/138727067)
+	private static final String TEMPLATE_USER_DATA_BUILD_ITEM = "%s: [%s](%s) ";
 
 	private static final Pattern REGEX_PATTERN_USER_DATA_LINES = Pattern.compile(String.format(escapeRegex(TEMPLATE_USER_DATA_LINE),
 			"(?<" + REGEX_GROUP_COMMIT_HASH + ">[0-9a-f]+)",
@@ -111,7 +118,7 @@ public class CiReport {
 				final Trigger.Type triggerType = Trigger.Type.PUSH;
 				final String triggerID = commitHash;
 
-				builds.put(commitHash + triggerType.name() + triggerID, new Build(
+				builds.put(commitHash + triggerType.name() + triggerID + url.hashCode(), new Build(
 						pullRequestID,
 						commitHash,
 						Optional.of(new GitHubCheckerStatus(
@@ -145,7 +152,7 @@ public class CiReport {
 							CiProvider.fromUrl(url));
 				}
 
-				builds.put(commitHash + triggerType + triggerID, new Build(
+				builds.put(commitHash + triggerType + triggerID + gitHubCheckerStatus.getDetailsUrl().hashCode(), new Build(
 						pullRequestID,
 						commitHash,
 						Optional.of(gitHubCheckerStatus),
@@ -164,8 +171,12 @@ public class CiReport {
 			throw new IllegalArgumentException();
 		}
 
+		final String baseHash = build.commitHash + build.trigger.getType().name() + build.trigger.getId();
+
+		builds.remove(baseHash);
+		builds.remove(baseHash + UNKNOWN_URL.hashCode());
 		builds.put(
-				build.commitHash + build.trigger.getType().name() + build.trigger.getId(),
+				baseHash + build.status.map(gitHubCheckerStatus -> String.valueOf(gitHubCheckerStatus.getDetailsUrl().hashCode())).orElse(""),
 				build
 		);
 	}
@@ -180,6 +191,10 @@ public class CiReport {
 
 	@Override
 	public String toString() {
+		return String.format(TEMPLATE_CI_REPORT, createMetaDataSection(), createUserDataSection());
+	}
+
+	private String createMetaDataSection() {
 		final StringBuilder metaDataSectionBuilder = new StringBuilder();
 		builds.values().forEach(build -> {
 			final GitHubCheckerStatus.State status;
@@ -201,29 +216,89 @@ public class CiReport {
 					build.trigger.getId()));
 		});
 
-		final Map<String, String> uniqueBuildPerHash = new LinkedHashMap<>();
-		builds.values().forEach(build -> build.status.ifPresent(status -> {
-			if (status.getState() == GitHubCheckerStatus.State.UNKNOWN) {
-				uniqueBuildPerHash.put(
-						build.commitHash,
-						String.format(
-								TEMPLATE_USER_DATA_LINE_UNKNOWN,
-								build.commitHash,
-								status.getState().name()));
-			} else {
-				uniqueBuildPerHash.put(
-						build.commitHash,
-						String.format(
-								TEMPLATE_USER_DATA_LINE,
-								build.commitHash,
-								status.getState().name(),
-								status.getDetailsUrl()));
-			}
-		}));
-		final StringBuilder userDataSectionBuilder = new StringBuilder();
-		uniqueBuildPerHash.values().forEach(userDataSectionBuilder::append);
+		return metaDataSectionBuilder.toString();
+	}
 
-		return String.format(TEMPLATE_CI_REPORT, metaDataSectionBuilder.toString(), userDataSectionBuilder.toString());
+	private String createUserDataSection() {
+		final Map<String, List<Build>> buildsPerHash = builds.values().stream()
+				.filter(build -> build.status.isPresent())
+				.collect(Collectors.groupingBy(
+						build -> build.commitHash,
+						LinkedHashMap::new,
+						Collectors.toList()));
+
+		final Map<String, String> reportEntryPerHash = new LinkedHashMap<>();
+		buildsPerHash.forEach((hash, builds) -> {
+			// reverse list so that distinct() retains the LAST matching build
+			Collections.reverse(builds);
+			builds = builds.stream().map(BuildDeduplicator::new).distinct().map(BuildDeduplicator::getOriginalBuild).collect(Collectors.toList());
+			Collections.reverse(builds);
+			builds.sort(Comparator.comparing(build -> build.status.map(GitHubCheckerStatus::getCiProvider).orElse(CiProvider.Unknown)));
+
+			final StringBuilder reportEntryBuilder = new StringBuilder();
+			for (Build build : builds) {
+				build.status.ifPresent(status -> {
+					if (status.getState() != GitHubCheckerStatus.State.UNKNOWN) {
+						reportEntryBuilder.append(
+								String.format(
+										TEMPLATE_USER_DATA_BUILD_ITEM,
+										status.getCiProvider().getName(),
+										status.getState().name(),
+										status.getDetailsUrl()));
+					}
+				});
+			}
+
+			if (reportEntryBuilder.length() == 0) {
+				reportEntryBuilder.append(GitHubCheckerStatus.State.UNKNOWN.name());
+			}
+
+			reportEntryPerHash.put(
+					hash,
+					String.format(
+							TEMPLATE_USER_DATA_LINE,
+							hash,
+							reportEntryBuilder.toString()));
+		});
+
+		final StringBuilder userDataSectionBuilder = new StringBuilder();
+		reportEntryPerHash.values().forEach(userDataSectionBuilder::append);
+
+		return userDataSectionBuilder.toString();
+	}
+
+	private static class BuildDeduplicator {
+
+		private final Build originalBuild;
+
+		private BuildDeduplicator(Build originalBuild) {
+			this.originalBuild = originalBuild;
+		}
+
+		public Build getOriginalBuild() {
+			return originalBuild;
+		}
+
+		@Override
+		public boolean equals(Object o) {
+			if (this == o) {
+				return true;
+			}
+			if (o == null || getClass() != o.getClass()) {
+				return false;
+			}
+			BuildDeduplicator that = (BuildDeduplicator) o;
+			// equal impl
+			return Objects.equals(originalBuild.commitHash, that.originalBuild.commitHash) &&
+					Objects.equals(
+							originalBuild.status.map(GitHubCheckerStatus::getDetailsUrl).orElse(null),
+							that.originalBuild.status.map(GitHubCheckerStatus::getDetailsUrl).orElse(null));
+		}
+
+		@Override
+		public int hashCode() {
+			return Objects.hash(originalBuild);
+		}
 	}
 
 	private static String escapeRegex(String format) {
