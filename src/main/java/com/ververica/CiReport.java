@@ -132,23 +132,23 @@ public class CiReport {
 				final String triggerID = metaDataMatcher.group(REGEX_GROUP_BUILD_TRIGGER_ID);
 
 				GitHubCheckerStatus.State state = GitHubCheckerStatus.State.valueOf(status);
-				final Optional<GitHubCheckerStatus> gitHubCheckerStatus;
+				final GitHubCheckerStatus gitHubCheckerStatus;
 				if (state == GitHubCheckerStatus.State.UNKNOWN) {
-					gitHubCheckerStatus = Optional.of(new GitHubCheckerStatus(
+					gitHubCheckerStatus = new GitHubCheckerStatus(
 							GitHubCheckerStatus.State.UNKNOWN,
 							"TBD",
-							CiProvider.Unknown));
+							CiProvider.Unknown);
 				} else {
-					gitHubCheckerStatus = Optional.of(new GitHubCheckerStatus(
+					gitHubCheckerStatus = new GitHubCheckerStatus(
 							state,
 							url,
-							CiProvider.fromUrl(url)));
+							CiProvider.fromUrl(url));
 				}
 
 				builds.put(commitHash + triggerType + triggerID, new Build(
 						pullRequestID,
 						commitHash,
-						gitHubCheckerStatus,
+						Optional.of(gitHubCheckerStatus),
 						new Trigger(Trigger.Type.valueOf(triggerType), triggerID)));
 			}
 		}
