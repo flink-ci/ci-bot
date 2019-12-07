@@ -20,6 +20,7 @@ package com.ververica;
 import com.beust.jcommander.JCommander;
 import com.ververica.ci.CiActions;
 import com.ververica.ci.CiProvider;
+import com.ververica.ci.azure.AzureActionsImpl;
 import com.ververica.git.GitActionsImpl;
 import com.ververica.github.GitHubCheckerStatus;
 import com.ververica.github.GithubActionsImpl;
@@ -84,6 +85,7 @@ public class CiBot implements Runnable, AutoCloseable {
 
 		final Map<CiProvider, CiActions> ciActions = new HashMap<>();
 		ciActions.put(CiProvider.Travis, new TravisActionsImpl(LOCAL_BASE_PATH.resolve("travis"), arguments.travisToken));
+		ciActions.put(CiProvider.Azure, new AzureActionsImpl(LOCAL_BASE_PATH.resolve("azure"), arguments.azureToken));
 
 		try (final CiBot ciBot = new CiBot(
 				new Core(

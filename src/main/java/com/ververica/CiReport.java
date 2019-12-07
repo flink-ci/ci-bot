@@ -41,6 +41,7 @@ public class CiReport {
 			"  The @flinkbot bot supports the following commands:\n" +
 			"\n" +
 			" - `@flinkbot run travis` re-run the last Travis build\n" +
+			" - `@flinkbot run azure` re-run the last Azure build\n" +
 			"</details>";
 
 	private static final String TEMPLATE_CI_REPORT_DATA_SECTION = "" +

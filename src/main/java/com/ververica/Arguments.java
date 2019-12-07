@@ -54,6 +54,12 @@ final class Arguments {
 	String travisToken;
 
 	@Parameter(
+			names = {"--azureToken", "-at"},
+			required = true,
+			description = "The Azure authorization token with cancel permissions for the CI repository.")
+	String azureToken;
+
+	@Parameter(
 			names = {"--interval", "-i"},
 			required = false,
 			description = "The polling interval in seconds.")

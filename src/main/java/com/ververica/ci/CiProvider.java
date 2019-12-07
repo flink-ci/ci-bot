@@ -19,6 +19,7 @@ package com.ververica.ci;
 
 public enum CiProvider {
 	Travis("Travis"),
+	Azure("Azure"),
 	Unknown("Unknown");
 
 	private final String name;
@@ -35,12 +36,18 @@ public enum CiProvider {
 		if (name.contains("travis-ci")) {
 			return Travis;
 		}
+		if (name.contains("azure-pipelines")) {
+			return Azure;
+		}
 		return Unknown;
 	}
 
 	public static CiProvider fromUrl(String url) {
 		if (url.contains("travis-ci")) {
 			return Travis;
+		}
+		if (url.contains("azure")) {
+			return Azure;
 		}
 		return Unknown;
 	}

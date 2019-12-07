@@ -245,6 +245,7 @@ public class Core implements AutoCloseable {
 
 				JCommander jCommander = new JCommander();
 				jCommander.addCommand(new TravisCommand());
+				jCommander.addCommand(new AzureCommand());
 
 				try {
 					jCommander.parse(command);
@@ -254,6 +255,9 @@ public class Core implements AutoCloseable {
 				}
 
 				switch (jCommander.getParsedCommand()) {
+					case AzureCommand.COMMAND_NAME:
+						runBuild(CiProvider.Azure, ciReport, comment);
+						break;
 					case TravisCommand.COMMAND_NAME:
 						runBuild(CiProvider.Travis, ciReport, comment);
 						break;
@@ -336,5 +340,10 @@ public class Core implements AutoCloseable {
 	@Parameters(commandNames = TravisCommand.COMMAND_NAME)
 	private static final class TravisCommand {
 		static final String COMMAND_NAME = "travis";
+	}
+
+	@Parameters(commandNames = AzureCommand.COMMAND_NAME)
+	private static final class AzureCommand {
+		static final String COMMAND_NAME = "azure";
 	}
 }
