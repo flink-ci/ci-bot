@@ -168,6 +168,7 @@ public class Core implements AutoCloseable {
 
 		final List<CiReport> ciReports = new ArrayList<>();
 		for (GithubPullRequest pullRequest : pullRequestsToProcessByID.values()) {
+			LOG.debug("Processing PR{}@{},", pullRequest.getID(), pullRequest.getHeadCommitHash());
 			final int pullRequestID = pullRequest.getID();
 			final String headCommitHash = pullRequest.getHeadCommitHash();
 			final Collection<String> reportedCommitHashes = new ArrayList<>();
@@ -175,6 +176,7 @@ public class Core implements AutoCloseable {
 			Optional<GitHubComment> ciReportComment = getCiReportComment(pullRequestID);
 			final CiReport ciReport;
 			if (ciReportComment.isPresent()) {
+				LOG.debug("CiReport comment found.");
 				ciReport = CiReport.fromComment(pullRequestID, ciReportComment.get().getCommentText());
 				ciReport.getBuilds().map(build -> build.commitHash).forEach(reportedCommitHashes::add);
 
@@ -185,6 +187,7 @@ public class Core implements AutoCloseable {
 						.forEach(build -> {
 							String commitHash = build.commitHash;
 
+							LOG.debug("Checking commit state for {}.", commitHash);
 							Iterable<GitHubCheckerStatus> commitState = gitHubActions.getCommitState(ciRepository, commitHash);
 							StreamSupport.stream(commitState.spliterator(), false)
 									.filter(status -> status.getCiProvider() != CiProvider.Unknown)
@@ -198,6 +201,7 @@ public class Core implements AutoCloseable {
 
 				processManualTriggers(ciReport, pullRequestID);
 			} else {
+				LOG.debug("No CIReport comment found.");
 				ciReport = CiReport.empty(pullRequestID);
 			}
 
