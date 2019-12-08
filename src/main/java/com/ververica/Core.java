@@ -76,7 +76,9 @@ public class Core implements AutoCloseable {
 	private final Map<CiProvider, CiActions> ciActions;
 	private int operationDelay;
 
-	public Core(String observedRepository, String ciRepository, String username, String githubToken, GitActions gitActions, GitHubActions gitHubActions, Map<CiProvider, CiActions> ciActions, int operationDelay) throws Exception {
+	private final Pattern githubCheckerNamePattern;
+
+	public Core(String observedRepository, String ciRepository, String username, String githubToken, GitActions gitActions, GitHubActions gitHubActions, Map<CiProvider, CiActions> ciActions, int operationDelay, String gitHubCheckerNameFilter) throws Exception {
 		this.observedRepository = observedRepository;
 		this.ciRepository = ciRepository;
 		this.username = username;
@@ -85,6 +87,7 @@ public class Core implements AutoCloseable {
 		this.gitHubActions = gitHubActions;
 		this.ciActions = ciActions;
 		this.operationDelay = operationDelay;
+		this.githubCheckerNamePattern = Pattern.compile(gitHubCheckerNameFilter);
 
 		setupGit(gitActions, observedRepository, ciRepository);
 	}
@@ -188,7 +191,7 @@ public class Core implements AutoCloseable {
 							String commitHash = build.commitHash;
 
 							LOG.debug("Checking commit state for {}.", commitHash);
-							Iterable<GitHubCheckerStatus> commitState = gitHubActions.getCommitState(ciRepository, commitHash);
+							Iterable<GitHubCheckerStatus> commitState = gitHubActions.getCommitState(ciRepository, commitHash, githubCheckerNamePattern);
 							StreamSupport.stream(commitState.spliterator(), false)
 									.filter(status -> status.getCiProvider() != CiProvider.Unknown)
 									.forEach(gitHubCheckerStatus -> {

@@ -96,7 +96,8 @@ public class CiBot implements Runnable, AutoCloseable {
 						new GitActionsImpl(LOCAL_BASE_PATH),
 						new GithubActionsImpl(LOCAL_BASE_PATH.resolve("github"), arguments.githubToken),
 						ciActions,
-						DELAY_MILLI_SECONDS),
+						DELAY_MILLI_SECONDS,
+						arguments.checkerNamePattern),
 				arguments.pollingIntervalInSeconds,
 				arguments.backlogHours)) {
 			ciBot.run();

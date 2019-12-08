@@ -94,7 +94,7 @@ public class GithubActionsImpl implements GitHubActions {
 	 * Internally this uses a plain REST client, since the {@code github-api} does not support the
 	 * Checks API. (see https://github.com/kohsuke/github-api/issues/520)
 	 */
-	public Iterable<GitHubCheckerStatus> getCommitState(String repositoryName, String commitHash) {
+	public Iterable<GitHubCheckerStatus> getCommitState(String repositoryName, String commitHash, Pattern checkerNamePattern) {
 		try (Response response = okHttpClient.newCall(new Request.Builder()
 				.url("https://api.github.com/repos/" + repositoryName + "/commits/" + commitHash + "/check-runs")
 				.addHeader("Accept", "application/vnd.github.antiope-preview+json")
@@ -110,6 +110,13 @@ public class GithubActionsImpl implements GitHubActions {
 				final List<GitHubCheckerStatus> checkerStatusList = new ArrayList<>();
 				while (checkJson.hasNext()) {
 					final JsonNode next = checkJson.next();
+
+					final String name = next.get("name").asText();
+					if (!checkerNamePattern.matcher(name).matches()) {
+						LOG.trace("Excluded checker with name {}.", name);
+						continue;
+					}
+					LOG.trace("Processing checker run with name {}.", name);
 
 					final JsonNode statusNode = next.get("status");
 					final GHStatus status = GHStatus.valueOf(statusNode.asText().toUpperCase());

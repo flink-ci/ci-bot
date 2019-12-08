@@ -60,6 +60,12 @@ final class Arguments {
 	String azureToken;
 
 	@Parameter(
+			names = {"--checkerNamePattern", "-cnp"},
+			required = false,
+			description = "A regex to select github checker runs to process.")
+	String checkerNamePattern = ".*";
+
+	@Parameter(
 			names = {"--interval", "-i"},
 			required = false,
 			description = "The polling interval in seconds.")
