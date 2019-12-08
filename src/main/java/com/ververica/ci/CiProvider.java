@@ -17,19 +17,29 @@
 
 package com.ververica.ci;
 
+import com.ververica.ci.azure.AzureActionsImpl;
+
+import java.util.function.Function;
+
 public enum CiProvider {
-	Travis("Travis"),
-	Azure("Azure"),
-	Unknown("Unknown");
+	Travis("Travis", s -> s),
+	Azure("Azure", AzureActionsImpl::normalizeUrl),
+	Unknown("Unknown", s -> s);
 
 	private final String name;
+	private final Function<String, String> urlNormalizer;
 
-	CiProvider(String name) {
+	CiProvider(String name, Function<String, String> urlNormalizer) {
 		this.name = name;
+		this.urlNormalizer = urlNormalizer;
 	}
 
 	public String getName() {
 		return name;
+	}
+
+	public String normalizeUrl(String url) {
+		return urlNormalizer.apply(url);
 	}
 
 	public static CiProvider fromSlug(String name) {

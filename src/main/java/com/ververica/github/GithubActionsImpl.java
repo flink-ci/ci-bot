@@ -126,10 +126,10 @@ public class GithubActionsImpl implements GitHubActions {
 							? Optional.empty()
 							: Optional.of(GHConclusion.valueOf(conclusionNode.asText().toUpperCase()));
 
-					final JsonNode detailsUrlNode = next.get("details_url");
-					final String detailsUrl = detailsUrlNode.asText();
-
 					final CiProvider ciProvider = CiProvider.fromSlug(next.get("app").get("slug").asText());
+
+					final JsonNode detailsUrlNode = next.get("details_url");
+					final String detailsUrl = ciProvider.normalizeUrl(detailsUrlNode.asText());
 
 					if (status != GHStatus.COMPLETED) {
 						checkerStatusList.add(new GitHubCheckerStatus(GitHubCheckerStatus.State.PENDING, detailsUrl, ciProvider));

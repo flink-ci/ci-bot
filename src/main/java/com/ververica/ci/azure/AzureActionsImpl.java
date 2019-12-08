@@ -119,6 +119,29 @@ public class AzureActionsImpl implements CiActions {
 		return Optional.empty();
 	}
 
+	public static String normalizeUrl(String detailsUrl) {
+		// example urls:
+		// https://dev.azure.com/chesnay/0f3463e8-185e-423b-aa88-6cc39182caea/_build/results?buildId=1
+		// https://dev.azure.com/chesnay/0f3463e8-185e-423b-aa88-6cc39182caea/_build/results?buildId=1&view=logs&jobId=c6e12662-7e76-5fac-6ded-4b654ce98c1b
+		final String prefix = "buildId=";
+
+		// https://dev.azure.com/chesnay/0f3463e8-185e-423b-aa88-6cc39182caea/_build/results?
+		final int prefixIndex = detailsUrl.indexOf(prefix);
+
+		// 1&view=logs&jobId=c6e12662-7e76-5fac-6ded-4b654ce98c1b
+		final String buildAndTail = detailsUrl.substring(prefixIndex + prefix.length());
+
+		final String tailPrefix = "&";
+		// 1&
+		final int tailIndex = buildAndTail.indexOf(tailPrefix);
+
+		if (tailIndex < 0) {
+			return detailsUrl;
+		} else {
+			return detailsUrl.substring(0, prefixIndex + prefix.length() + tailIndex);
+		}
+	}
+
 	private static OkHttpClient setupOkHttpClient(Cache cache) {
 		LOG.info("Setting up OkHttp client with cache at {}.", cache.directory());
 
