@@ -19,6 +19,8 @@ package com.ververica;
 
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameters;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.ververica.ci.CiActions;
 import com.ververica.ci.CiProvider;
 import com.ververica.git.GitActions;
@@ -40,6 +42,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -77,6 +80,11 @@ public class Core implements AutoCloseable {
 	private int operationDelay;
 
 	private final Pattern githubCheckerNamePattern;
+
+	private final Cache<Long, Boolean> pendingTriggers = CacheBuilder.newBuilder()
+			.maximumSize(1000)
+			.expireAfterWrite(10, TimeUnit.MINUTES)
+			.build();
 
 	public Core(String observedRepository, String ciRepository, String username, String githubToken, GitActions gitActions, GitHubActions gitHubActions, Map<CiProvider, CiActions> ciActions, int operationDelay, String gitHubCheckerNameFilter) throws Exception {
 		this.observedRepository = observedRepository;
@@ -241,6 +249,10 @@ public class Core implements AutoCloseable {
 			if (processedComments.contains(comment.getId())) {
 				return;
 			}
+			if (pendingTriggers.getIfPresent(comment.getId()) != null) {
+				LOG.debug("Ignoring trigger {} due to being cached.", comment.getId());
+				return;
+			}
 
 			final Matcher matcher = REGEX_PATTERN_COMMAND_MENTION.matcher(comment.getCommentText());
 			if (matcher.find()) {
@@ -267,6 +279,7 @@ public class Core implements AutoCloseable {
 					default:
 						throw new RuntimeException("Unhandled valid command " + Arrays.toString(command) + " .");
 				}
+				pendingTriggers.put(comment.getId(), true);
 			}
 		});
 	}
