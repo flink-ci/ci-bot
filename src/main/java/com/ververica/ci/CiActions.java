@@ -17,10 +17,12 @@
 
 package com.ververica.ci;
 
+import java.util.Optional;
+
 public interface CiActions extends AutoCloseable {
 	void cancelBuild(String detailsUrl);
 
-	void restartBuild(String detailsUrl);
+	Optional<String> runBuild(String detailsUrl, String branch);
 
 	void close();
 }

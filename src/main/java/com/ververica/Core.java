@@ -255,7 +255,7 @@ public class Core implements AutoCloseable {
 
 				switch (jCommander.getParsedCommand()) {
 					case TravisCommand.COMMAND_NAME:
-						restartBuild(CiProvider.Travis, ciReport, comment);
+						runBuild(CiProvider.Travis, ciReport, comment);
 						break;
 					default:
 						throw new RuntimeException("Unhandled valid command " + Arrays.toString(command) + " .");
@@ -264,7 +264,7 @@ public class Core implements AutoCloseable {
 		});
 	}
 
-	private void restartBuild(CiProvider ciProvider, CiReport ciReport, GitHubComment comment) {
+	private void runBuild(CiProvider ciProvider, CiReport ciReport, GitHubComment comment) {
 		Optional<Build> lastBuildOptional = ciReport.getBuilds()
 				.filter(build -> build.status.map(s -> s.getCiProvider() == ciProvider).orElse(false))
 				.reduce((first, second) -> second);
@@ -276,15 +276,18 @@ public class Core implements AutoCloseable {
 				LOG.debug("Ignoring {} run command since no build was triggered yet.", ciProvider.getName());
 			} else {
 				GitHubCheckerStatus gitHubCheckerStatus = lastBuild.status.get();
-				ciActions.get(gitHubCheckerStatus.getCiProvider()).restartBuild(gitHubCheckerStatus.getDetailsUrl());
-				ciReport.add(new Build(
+				Optional<String> newUrl = ciActions.get(gitHubCheckerStatus.getCiProvider()).runBuild(
+						gitHubCheckerStatus.getDetailsUrl(),
+						getCiBranchName(lastBuild.pullRequestID, lastBuild.commitHash)
+				);
+				newUrl.ifPresent(url -> ciReport.add(new Build(
 						lastBuild.pullRequestID,
 						lastBuild.commitHash,
 						Optional.of(new GitHubCheckerStatus(
 								GitHubCheckerStatus.State.PENDING,
-								gitHubCheckerStatus.getDetailsUrl(),
+								url,
 								gitHubCheckerStatus.getCiProvider())),
-						new Trigger(Trigger.Type.MANUAL, String.valueOf(comment.getId()))));
+						new Trigger(Trigger.Type.MANUAL, String.valueOf(comment.getId())))));
 			}
 		}
 	}

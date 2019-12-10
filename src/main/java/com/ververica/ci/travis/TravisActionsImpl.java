@@ -28,6 +28,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class TravisActionsImpl implements CiActions {
 	private static final Logger LOG = LoggerFactory.getLogger(TravisActionsImpl.class);
@@ -84,7 +85,7 @@ public class TravisActionsImpl implements CiActions {
 	}
 
 	@Override
-	public void restartBuild(String detailsUrl) {
+	public Optional<String> runBuild(String detailsUrl, String branch) {
 		final String buildId = detailsUrl.substring(detailsUrl.lastIndexOf('/') + 1);
 
 		try {
@@ -105,5 +106,6 @@ public class TravisActionsImpl implements CiActions {
 		} catch (IOException e) {
 			LOG.error("Failed to restart build {}.", buildId, e);
 		}
+		return Optional.of(detailsUrl);
 	}
 }
