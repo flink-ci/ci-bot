@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Base64;
+import java.util.List;
 import java.util.Optional;
 
 public class AzureActionsImpl implements CiActions {
@@ -70,8 +71,11 @@ public class AzureActionsImpl implements CiActions {
 	}
 
 	@Override
-	public Optional<String> runBuild(String detailsUrl, String branch) {
+	public Optional<String> runBuild(String detailsUrl, String branch, List<String> arguments) {
 		final String projectSlug = extractProjectUrl(detailsUrl);
+		final String args = arguments.size() == 0
+						? ""
+						: "\"parameters\":\"{\\\"args\\\":\\\"" + String.join(" ", arguments) + "\\\"}\"";
 
 		Optional<String> response = submitRequest(
 				"https://dev.azure.com/" + projectSlug + "/_apis/build/builds",
@@ -81,6 +85,7 @@ public class AzureActionsImpl implements CiActions {
 						"{" +
 								"\"definition\": {\"id\": 1}," +
 								"\"sourceBranch\": \"" + branch + "\"," +
+								args +
 								"}"));
 
 		if (response.isPresent()) {

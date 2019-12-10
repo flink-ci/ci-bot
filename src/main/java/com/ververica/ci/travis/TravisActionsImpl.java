@@ -28,6 +28,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 
 public class TravisActionsImpl implements CiActions {
@@ -85,7 +86,7 @@ public class TravisActionsImpl implements CiActions {
 	}
 
 	@Override
-	public Optional<String> runBuild(String detailsUrl, String branch) {
+	public Optional<String> runBuild(String detailsUrl, String branch, List<String> arguments) {
 		final String buildId = detailsUrl.substring(detailsUrl.lastIndexOf('/') + 1);
 
 		try {

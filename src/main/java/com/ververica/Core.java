@@ -18,6 +18,7 @@
 package com.ververica;
 
 import com.beust.jcommander.JCommander;
+import com.beust.jcommander.Parameter;
 import com.beust.jcommander.Parameters;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
@@ -36,6 +37,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -258,9 +260,11 @@ public class Core implements AutoCloseable {
 			if (matcher.find()) {
 				final String[] command = matcher.group(REGEX_GROUP_COMMAND).split(" ");
 
+				final AzureCommand azureCommand = new AzureCommand();
+
 				JCommander jCommander = new JCommander();
 				jCommander.addCommand(new TravisCommand());
-				jCommander.addCommand(new AzureCommand());
+				jCommander.addCommand(azureCommand);
 
 				try {
 					jCommander.parse(command);
@@ -271,10 +275,10 @@ public class Core implements AutoCloseable {
 
 				switch (jCommander.getParsedCommand()) {
 					case AzureCommand.COMMAND_NAME:
-						runBuild(CiProvider.Azure, ciReport, comment);
+						runBuild(CiProvider.Azure, ciReport, comment, azureCommand.args);
 						break;
 					case TravisCommand.COMMAND_NAME:
-						runBuild(CiProvider.Travis, ciReport, comment);
+						runBuild(CiProvider.Travis, ciReport, comment, Collections.emptyList());
 						break;
 					default:
 						throw new RuntimeException("Unhandled valid command " + Arrays.toString(command) + " .");
@@ -284,7 +288,7 @@ public class Core implements AutoCloseable {
 		});
 	}
 
-	private void runBuild(CiProvider ciProvider, CiReport ciReport, GitHubComment comment) {
+	private void runBuild(CiProvider ciProvider, CiReport ciReport, GitHubComment comment, List<String> arguments) {
 		Optional<Build> lastBuildOptional = ciReport.getBuilds()
 				.filter(build -> build.status.map(s -> s.getCiProvider() == ciProvider).orElse(false))
 				.reduce((first, second) -> second);
@@ -298,7 +302,8 @@ public class Core implements AutoCloseable {
 				GitHubCheckerStatus gitHubCheckerStatus = lastBuild.status.get();
 				Optional<String> newUrl = ciActions.get(gitHubCheckerStatus.getCiProvider()).runBuild(
 						gitHubCheckerStatus.getDetailsUrl(),
-						getCiBranchName(lastBuild.pullRequestID, lastBuild.commitHash)
+						getCiBranchName(lastBuild.pullRequestID, lastBuild.commitHash),
+						arguments
 				);
 				newUrl.ifPresent(url -> ciReport.add(new Build(
 						lastBuild.pullRequestID,
@@ -361,5 +366,8 @@ public class Core implements AutoCloseable {
 	@Parameters(commandNames = AzureCommand.COMMAND_NAME)
 	private static final class AzureCommand {
 		static final String COMMAND_NAME = "azure";
+
+		@Parameter
+		private List<String> args = Collections.emptyList();
 	}
 }
