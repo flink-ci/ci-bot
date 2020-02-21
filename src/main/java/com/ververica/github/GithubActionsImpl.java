@@ -19,6 +19,7 @@ package com.ververica.github;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Preconditions;
 import com.ververica.ci.CiProvider;
 import okhttp3.Cache;
 import okhttp3.OkHttpClient;
@@ -40,8 +41,10 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -107,7 +110,7 @@ public class GithubActionsImpl implements GitHubActions {
 				final JsonNode jsonNode = objectMapper.readTree(rawJson);
 				final Iterator<JsonNode> checkJson = jsonNode.get("check_runs").iterator();
 
-				final List<GitHubCheckerStatus> checkerStatusList = new ArrayList<>();
+				final Map<String, GitHubCheckerStatus> checksByUrl = new HashMap<>();
 				while (checkJson.hasNext()) {
 					final JsonNode next = checkJson.next();
 
@@ -131,11 +134,13 @@ public class GithubActionsImpl implements GitHubActions {
 					final JsonNode detailsUrlNode = next.get("details_url");
 					final String detailsUrl = ciProvider.normalizeUrl(detailsUrlNode.asText());
 
+					final GitHubCheckerStatus checkerStatus;
 					if (status != GHStatus.COMPLETED) {
-						checkerStatusList.add(new GitHubCheckerStatus(GitHubCheckerStatus.State.PENDING, detailsUrl, ciProvider));
+						checkerStatus = new GitHubCheckerStatus(GitHubCheckerStatus.State.PENDING, detailsUrl, ciProvider);
 					} else {
 						if (!conclusion.isPresent()) {
 							LOG.warn("Completed check did not have conclusion attached.");
+							checkerStatus = null;
 						} else {
 							final GitHubCheckerStatus.State state;
 							switch (conclusion.get()) {
@@ -149,11 +154,17 @@ public class GithubActionsImpl implements GitHubActions {
 									state = GitHubCheckerStatus.State.FAILURE;
 									break;
 							}
-							checkerStatusList.add(new GitHubCheckerStatus(state, detailsUrl, ciProvider));
+							checkerStatus = new GitHubCheckerStatus(state, detailsUrl, ciProvider);
 						}
 					}
+					if (checkerStatus != null) {
+						checksByUrl.compute(detailsUrl, (s, gitHubCheckerStatus) ->
+								gitHubCheckerStatus == null
+										? checkerStatus
+										: merge(checkerStatus, gitHubCheckerStatus));
+					}
 				}
-				return checkerStatusList;
+				return new ArrayList<>(checksByUrl.values());
 			} catch (Exception e) {
 				LOG.debug("Raw Check JSON: {}.", rawJson);
 				throw e;
@@ -165,6 +176,26 @@ public class GithubActionsImpl implements GitHubActions {
 			LOG.warn("Could not retrieve commit state.", e);
 			return Collections.emptyList();
 		}
+	}
+
+	private static GitHubCheckerStatus merge(GitHubCheckerStatus a, GitHubCheckerStatus b) {
+		Preconditions.checkArgument(a.getDetailsUrl().equals(b.getDetailsUrl()));
+		Preconditions.checkArgument(a.getCiProvider().getName().equals(b.getCiProvider().getName()));
+
+		final GitHubCheckerStatus.State mergedState;
+		if (a.getState() == GitHubCheckerStatus.State.FAILURE || b.getState() == GitHubCheckerStatus.State.FAILURE) {
+			mergedState = GitHubCheckerStatus.State.FAILURE;
+		} else if (a.getState() == GitHubCheckerStatus.State.CANCELED || b.getState() == GitHubCheckerStatus.State.CANCELED) {
+			mergedState = GitHubCheckerStatus.State.CANCELED;
+		} else if (a.getState() == GitHubCheckerStatus.State.PENDING || b.getState() == GitHubCheckerStatus.State.PENDING) {
+			mergedState = GitHubCheckerStatus.State.PENDING;
+		} else if (a.getState() == GitHubCheckerStatus.State.SUCCESS && b.getState() == GitHubCheckerStatus.State.SUCCESS) {
+			mergedState = GitHubCheckerStatus.State.SUCCESS;
+		} else {
+			LOG.warn("Unaccounted case for merging checker states. {} + {}", a.getState(), b.getState());
+			mergedState = GitHubCheckerStatus.State.UNKNOWN;
+		}
+		return new GitHubCheckerStatus(mergedState, a.getDetailsUrl(), a.getCiProvider());
 	}
 
 	@Override
