@@ -51,6 +51,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static com.ververica.utils.LogUtils.formatPullRequestID;
+
 /**
  * A bot that mirrors pull requests opened against one repository (so called "observed repository") to branches in
  * another repository (so called "ci repository"), and report back the Checker status once the checks have completed.
@@ -186,7 +188,7 @@ public class CiBot implements Runnable, AutoCloseable {
 				if (ciReport.getBuilds().anyMatch(build -> true)) {
 					core.updateCiReport(ciReport);
 				} else {
-					LOG.debug("Skipping CI report update for pull request {} update since report contains no builds.", ciReport.getPullRequestID());
+					LOG.debug("Skipping CI report update for pull request {} update since report contains no builds.", formatPullRequestID(ciReport.getPullRequestID()));
 				}
 			} catch (IOException e) {
 				LOG.debug("Error while updating CI report.", e);
@@ -197,10 +199,10 @@ public class CiBot implements Runnable, AutoCloseable {
 		for (Map.Entry<Integer, List<Build>> pendingBuilds : pendingBuildsPerPullRequestId.entrySet()) {
 			final int pullRequestID = pendingBuilds.getKey();
 			if (core.isPullRequestClosed(pullRequestID)) {
-				LOG.info("Canceling pending builds for PullRequest {} since the PullRequest was closed.", pullRequestID);
+				LOG.info("Canceling pending builds for PullRequest {} since the PullRequest was closed.", formatPullRequestID(pullRequestID));
 				pendingBuilds.getValue().forEach(core::cancelBuild);
 			} else if (pullRequestsWithNewBuilds.contains(pullRequestID)) {
-				LOG.info("Canceling pending builds for PullRequest {} since a new build was triggered.", pullRequestID);
+				LOG.info("Canceling pending builds for PullRequest {} since a new build was triggered.", formatPullRequestID(pullRequestID));
 				pendingBuilds.getValue().forEach(core::cancelBuild);
 			}
 		}
@@ -209,7 +211,7 @@ public class CiBot implements Runnable, AutoCloseable {
 		for (Map.Entry<Integer, List<Build>> finishedBuilds : finishedBuildsPerPullRequestId.entrySet()) {
 			final int pullRequestID = finishedBuilds.getKey();
 			if (core.isPullRequestClosed(pullRequestID)) {
-				LOG.info("Deleting branches for PullRequest {} since PullRequest was closed.", pullRequestID);
+				LOG.info("Deleting branches for PullRequest {} since PullRequest was closed.", formatPullRequestID(pullRequestID));
 				for (Build finishedBuild : finishedBuilds.getValue()) {
 					core.deleteCiBranch(finishedBuild);
 				}

@@ -51,6 +51,8 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
+import static com.ververica.utils.LogUtils.formatPullRequestID;
+
 /**
  * A bot that mirrors pull requests opened against one repository (so called "observed repository") to branches in
  * another repository (so called "ci repository"), and report back the Checker status once the checks have completed.
@@ -137,7 +139,7 @@ public class Core implements AutoCloseable {
 		final String comment = parsedCiReport.toString();
 		final long cacheKey = (long) parsedCiReport.getPullRequestID() << 32 | comment.hashCode();
 		if (pendingCiReportUpdates.getIfPresent(cacheKey) != null) {
-			LOG.debug("Ignoring ci report update for PR {} due to being cached.", parsedCiReport.getPullRequestID());
+			LOG.debug("Ignoring ci report update for PR {} due to being cached.", formatPullRequestID(parsedCiReport.getPullRequestID()));
 			return;
 		}
 		pendingCiReportUpdates.put(cacheKey, true);
@@ -152,19 +154,19 @@ public class Core implements AutoCloseable {
 			LOG.trace("New CI report:\n{}", comment);
 
 			if (gitHubComment.getCommentText().equals(comment)) {
-				LOG.debug("Skipping CI report update for pull request {} since it is up-to-date.", pullRequestID);
+				LOG.debug("Skipping CI report update for pull request {} since it is up-to-date.", formatPullRequestID(pullRequestID));
 			} else {
-				LOG.info("Updating CI report for pull request {}.", pullRequestID);
+				LOG.info("Updating CI report for pull request {}.", formatPullRequestID(pullRequestID));
 				gitHubComment.update(comment);
 			}
 		} else {
-			LOG.info("Submitting new CI report for pull request {}.", pullRequestID);
+			LOG.info("Submitting new CI report for pull request {}.", formatPullRequestID(pullRequestID));
 			gitHubActions.submitComment(observedRepository, pullRequestID, comment);
 		}
 	}
 
 	private Optional<GitHubComment> getCiReportComment(int pullRequestID) throws IOException {
-		LOG.info("Retrieving CI report for pull request {}.", pullRequestID);
+		LOG.info("Retrieving CI report for pull request {}.", formatPullRequestID(pullRequestID));
 		return StreamSupport.stream(gitHubActions.getComments(observedRepository, pullRequestID, username).spliterator(), false)
 				.filter(comment -> CiReport.isCiReportComment(comment.getCommentText()))
 				.findAny();
@@ -182,7 +184,7 @@ public class Core implements AutoCloseable {
 		} else {
 			pendingBranchDeletions.put(ciBranchName, true);
 		}
-		LOG.info("Deleting CI branch for {}@{}.", finishedBuild.pullRequestID, finishedBuild.commitHash);
+		LOG.info("Deleting CI branch for {}@{}.", formatPullRequestID(finishedBuild.pullRequestID), finishedBuild.commitHash);
 		gitActions.deleteBranch(
 				ciBranchName,
 				REMOTE_NAME_CI_REPOSITORY,
@@ -208,7 +210,7 @@ public class Core implements AutoCloseable {
 
 		final List<CiReport> ciReports = new ArrayList<>();
 		for (GithubPullRequest pullRequest : pullRequestsToProcessByID.values()) {
-			LOG.debug("Processing PR {}@{}.", pullRequest.getID(), pullRequest.getHeadCommitHash());
+			LOG.debug("Processing PR {}@{}.", formatPullRequestID(pullRequest.getID()), pullRequest.getHeadCommitHash());
 			final int pullRequestID = pullRequest.getID();
 			final String headCommitHash = pullRequest.getHeadCommitHash();
 			final Collection<String> reportedCommitHashes = new ArrayList<>();
@@ -259,7 +261,7 @@ public class Core implements AutoCloseable {
 		try {
 			comments = gitHubActions.getComments(observedRepository, pullRequestID, REGEX_PATTERN_COMMAND_MENTION);
 		} catch (IOException e) {
-			LOG.debug("Could not retrieve comments for pull request {}.", pullRequestID, e);
+			LOG.debug("Could not retrieve comments for pull request {}.", formatPullRequestID(pullRequestID), e);
 			return;
 		}
 
@@ -348,7 +350,7 @@ public class Core implements AutoCloseable {
 
 	public void mirrorPullRequest(int pullRequestID) throws Exception {
 		if (pendingMirrors.getIfPresent(pullRequestID) != null) {
-			LOG.debug("Ignoring mirroring for {} due to being cached.", pullRequestID);
+			LOG.debug("Ignoring mirroring for {} due to being cached.", formatPullRequestID(pullRequestID));
 			return;
 		}
 		pendingMirrors.put(pullRequestID, true);
@@ -360,9 +362,9 @@ public class Core implements AutoCloseable {
 		// the PR may have been updated in between the state fetch and this point
 		// determine actual HEAD commit
 		String commitHash = gitActions.getHeadCommitSHA(String.valueOf(pullRequestID));
-		LOG.debug("Using commitHash {} for PR {}.", commitHash, pullRequestID);
+		LOG.debug("Using commitHash {} for PR {}.", commitHash, formatPullRequestID(pullRequestID));
 
-		LOG.info("Pushing PullRequest {}.", pullRequestID);
+		LOG.info("Pushing PullRequest {}.", formatPullRequestID(pullRequestID));
 		gitActions.pushBranch(
 				String.valueOf(pullRequestID),
 				getCiBranchName(pullRequestID, commitHash),
@@ -379,11 +381,11 @@ public class Core implements AutoCloseable {
 		if (buildToCancel.status.isPresent()) {
 			final GitHubCheckerStatus status = buildToCancel.status.get();
 			if (recentCancellations.getIfPresent(status.getDetailsUrl()) != null) {
-				LOG.debug("Ignoring cancellation {}@{} due to being cached.", buildToCancel.pullRequestID, buildToCancel.commitHash);
+				LOG.debug("Ignoring cancellation {}@{} due to being cached.", formatPullRequestID(buildToCancel.pullRequestID), buildToCancel.commitHash);
 				return;
 			}
 			recentCancellations.put(status.getDetailsUrl(), true);
-			LOG.info("Canceling build {}@{}.", buildToCancel.pullRequestID, buildToCancel.commitHash);
+			LOG.info("Canceling build {}@{}.", formatPullRequestID(buildToCancel.pullRequestID), buildToCancel.commitHash);
 			ciActions.getActionsForProvider(status.getCiProvider()).ifPresent(ciAction -> ciAction.cancelBuild(status.getDetailsUrl()));
 		}
 	}
