@@ -80,9 +80,29 @@ public class Core implements AutoCloseable {
 
 	private final Pattern githubCheckerNamePattern;
 
+	private final Cache<Integer, Boolean> pendingMirrors = CacheBuilder.newBuilder()
+			.maximumSize(50)
+			.expireAfterWrite(1, TimeUnit.HOURS)
+			.build();
+
 	private final Cache<Long, Boolean> pendingTriggers = CacheBuilder.newBuilder()
 			.maximumSize(1000)
-			.expireAfterWrite(10, TimeUnit.MINUTES)
+			.expireAfterWrite(1, TimeUnit.HOURS)
+			.build();
+
+	private final Cache<String, Boolean> recentCancellations = CacheBuilder.newBuilder()
+			.maximumSize(50)
+			.expireAfterWrite(1, TimeUnit.HOURS)
+			.build();
+
+	private final Cache<String, Boolean> pendingBranchDeletions = CacheBuilder.newBuilder()
+			.maximumSize(50)
+			.expireAfterWrite(1, TimeUnit.HOURS)
+			.build();
+
+	private final Cache<Long, Boolean> pendingCiReportUpdates = CacheBuilder.newBuilder()
+			.maximumSize(1000)
+			.expireAfterWrite(1, TimeUnit.HOURS)
 			.build();
 
 	public Core(String observedRepository, String ciRepository, String username, String githubToken, GitActions gitActions, GitHubActions gitHubActions, CiActionsContainer ciActions, String gitHubCheckerNameFilter) throws Exception {
@@ -114,6 +134,14 @@ public class Core implements AutoCloseable {
 	}
 
 	public void updateCiReport(final CiReport parsedCiReport) throws IOException {
+		final String comment = parsedCiReport.toString();
+		final long cacheKey = (long) parsedCiReport.getPullRequestID() << 32 | comment.hashCode();
+		if (pendingCiReportUpdates.getIfPresent(cacheKey) != null) {
+			LOG.debug("Ignoring ci report update for PR {} due to being cached.", parsedCiReport.getPullRequestID());
+			return;
+		}
+		pendingCiReportUpdates.put(cacheKey, true);
+
 		final int pullRequestID = parsedCiReport.getPullRequestID();
 		Optional<GitHubComment> ciReport = getCiReportComment(pullRequestID);
 
@@ -121,7 +149,6 @@ public class Core implements AutoCloseable {
 			GitHubComment gitHubComment = ciReport.get();
 			LOG.trace("Existing CI report:\n{}", gitHubComment.getCommentText());
 
-			String comment = parsedCiReport.toString();
 			LOG.trace("New CI report:\n{}", comment);
 
 			if (gitHubComment.getCommentText().equals(comment)) {
@@ -131,7 +158,6 @@ public class Core implements AutoCloseable {
 				gitHubComment.update(comment);
 			}
 		} else {
-			String comment = parsedCiReport.toString();
 			LOG.info("Submitting new CI report for pull request {}.", pullRequestID);
 			gitHubActions.submitComment(observedRepository, pullRequestID, comment);
 		}
@@ -149,9 +175,16 @@ public class Core implements AutoCloseable {
 	}
 
 	public void deleteCiBranch(Build finishedBuild) throws Exception {
+		String ciBranchName = getCiBranchName(finishedBuild.pullRequestID, finishedBuild.commitHash);
+		if (pendingBranchDeletions.getIfPresent(ciBranchName) != null) {
+			LOG.debug("Ignoring deletion of {} due to being cached.", ciBranchName);
+			return;
+		} else {
+			pendingBranchDeletions.put(ciBranchName, true);
+		}
 		LOG.info("Deleting CI branch for {}@{}.", finishedBuild.pullRequestID, finishedBuild.commitHash);
 		gitActions.deleteBranch(
-				getCiBranchName(finishedBuild.pullRequestID, finishedBuild.commitHash),
+				ciBranchName,
 				REMOTE_NAME_CI_REPOSITORY,
 				true,
 				githubToken);
@@ -249,6 +282,7 @@ public class Core implements AutoCloseable {
 				LOG.debug("Ignoring trigger {} due to being cached.", comment.getId());
 				return;
 			}
+			pendingTriggers.put(comment.getId(), true);
 
 			final Matcher matcher = REGEX_PATTERN_COMMAND_MENTION.matcher(comment.getCommentText());
 			if (matcher.find()) {
@@ -313,6 +347,12 @@ public class Core implements AutoCloseable {
 	}
 
 	public void mirrorPullRequest(int pullRequestID) throws Exception {
+		if (pendingMirrors.getIfPresent(pullRequestID) != null) {
+			LOG.debug("Ignoring mirroring for {} due to being cached.", pullRequestID);
+			return;
+		}
+		pendingMirrors.put(pullRequestID, true);
+
 		LOG.info("Mirroring PullRequest {}.", pullRequestID);
 
 		gitActions.fetchBranch(String.valueOf(pullRequestID), REMOTE_NAME_OBSERVED_REPOSITORY, true);
@@ -338,6 +378,11 @@ public class Core implements AutoCloseable {
 	public void cancelBuild(Build buildToCancel) {
 		if (buildToCancel.status.isPresent()) {
 			final GitHubCheckerStatus status = buildToCancel.status.get();
+			if (recentCancellations.getIfPresent(status.getDetailsUrl()) != null) {
+				LOG.debug("Ignoring cancellation {}@{} due to being cached.", buildToCancel.pullRequestID, buildToCancel.commitHash);
+				return;
+			}
+			recentCancellations.put(status.getDetailsUrl(), true);
 			LOG.info("Canceling build {}@{}.", buildToCancel.pullRequestID, buildToCancel.commitHash);
 			ciActions.getActionsForProvider(status.getCiProvider()).ifPresent(ciAction -> ciAction.cancelBuild(status.getDetailsUrl()));
 		}

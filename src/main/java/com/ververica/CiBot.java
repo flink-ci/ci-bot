@@ -61,8 +61,6 @@ public class CiBot implements Runnable, AutoCloseable {
 
 	private static final Path LOCAL_BASE_PATH = Paths.get(System.getProperty("java.io.tmpdir"), "ci_bot");
 
-	private final static int DELAY_MILLI_SECONDS = 5 * 1000;
-
 	private final Core core;
 	private final int pollingIntervalInSeconds;
 	private final int backlogHours;
@@ -179,7 +177,6 @@ public class CiBot implements Runnable, AutoCloseable {
 				core.mirrorPullRequest(build.pullRequestID);
 				pullRequestsWithNewBuilds.add(build.pullRequestID);
 				ciReport.add(new Build(build.pullRequestID, build.commitHash, Optional.of(new GitHubCheckerStatus(GitHubCheckerStatus.State.UNKNOWN, "TBD", CiProvider.Unknown)), build.trigger));
-				Thread.sleep(DELAY_MILLI_SECONDS);
 			}
 		}
 
@@ -193,12 +190,6 @@ public class CiBot implements Runnable, AutoCloseable {
 			} catch (IOException e) {
 				LOG.debug("Error while updating CI report.", e);
 			}
-
-			try {
-				Thread.sleep(DELAY_MILLI_SECONDS);
-			} catch (InterruptedException e) {
-				Thread.currentThread().interrupt();
-			}
 		});
 
 		final Map<Integer, List<Build>> pendingBuildsPerPullRequestId = observedRepositoryState.getPendingBuilds().collect(Collectors.groupingBy(build -> build.pullRequestID));
@@ -206,10 +197,10 @@ public class CiBot implements Runnable, AutoCloseable {
 			final int pullRequestID = pendingBuilds.getKey();
 			if (core.isPullRequestClosed(pullRequestID)) {
 				LOG.info("Canceling pending builds for PullRequest {} since the PullRequest was closed.", pullRequestID);
-				cancelBuilds(pendingBuilds.getValue());
+				pendingBuilds.getValue().forEach(core::cancelBuild);
 			} else if (pullRequestsWithNewBuilds.contains(pullRequestID)) {
 				LOG.info("Canceling pending builds for PullRequest {} since a new build was triggered.", pullRequestID);
-				cancelBuilds(pendingBuilds.getValue());
+				pendingBuilds.getValue().forEach(core::cancelBuild);
 			}
 		}
 
@@ -220,16 +211,8 @@ public class CiBot implements Runnable, AutoCloseable {
 				LOG.info("Deleting branches for PullRequest {} since PullRequest was closed.", pullRequestID);
 				for (Build finishedBuild : finishedBuilds.getValue()) {
 					core.deleteCiBranch(finishedBuild);
-					Thread.sleep(DELAY_MILLI_SECONDS);
 				}
 			}
-		}
-	}
-
-	private void cancelBuilds(Iterable<Build> builds) throws InterruptedException {
-		for (Build build : builds) {
-			core.cancelBuild(build);
-			Thread.sleep(DELAY_MILLI_SECONDS);
 		}
 	}
 }
