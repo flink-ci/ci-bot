@@ -208,7 +208,7 @@ public class Core implements AutoCloseable {
 
 		final List<CiReport> ciReports = new ArrayList<>();
 		for (GithubPullRequest pullRequest : pullRequestsToProcessByID.values()) {
-			LOG.debug("Processing PR{}@{},", pullRequest.getID(), pullRequest.getHeadCommitHash());
+			LOG.debug("Processing PR {}@{}.", pullRequest.getID(), pullRequest.getHeadCommitHash());
 			final int pullRequestID = pullRequest.getID();
 			final String headCommitHash = pullRequest.getHeadCommitHash();
 			final Collection<String> reportedCommitHashes = new ArrayList<>();
