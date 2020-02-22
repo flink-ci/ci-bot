@@ -1,10 +1,19 @@
 package com.ververica;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.ververica.ci.CiActions;
 import com.ververica.ci.CiActionsLookup;
 import com.ververica.ci.CiProvider;
 import com.ververica.github.GitHubCheckerStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -19,10 +28,17 @@ import java.util.stream.Stream;
 
 public class CiReport {
 
+	private static final Logger LOG = LoggerFactory.getLogger(CiReport.class);
+
+	@Deprecated
 	private static final String REGEX_GROUP_COMMIT_HASH = "CommitHash";
+	@Deprecated
 	private static final String REGEX_GROUP_BUILD_STATUS = "BuildStatus";
+	@Deprecated
 	private static final String REGEX_GROUP_BUILD_URL = "URL";
+	@Deprecated
 	private static final String REGEX_GROUP_BUILD_TRIGGER_TYPE = "TriggerType";
+	@Deprecated
 	private static final String REGEX_GROUP_BUILD_TRIGGER_ID = "TriggerID";
 	private static final String REGEX_GROUP_META_DATA = "MetaData";
 	private static final String REGEX_GROUP_USER_DATA = "UserData";
@@ -63,8 +79,10 @@ public class CiReport {
 					+ "(\n" + TEMPLATE_CI_REPORT_COMMAND_HELP_SECTION + ")?",
 			Pattern.DOTALL);
 
+	@Deprecated
 	private static final String TEMPLATE_META_DATA_LINE = "Hash:%s Status:%s URL:%s TriggerType:%s TriggerID:%s\n";
 
+	@Deprecated
 	private static final Pattern REGEX_PATTERN_META_DATA_LINES = Pattern.compile(String.format(escapeRegex(TEMPLATE_META_DATA_LINE),
 			"(?<" + REGEX_GROUP_COMMIT_HASH + ">[0-9a-f]+)",
 			"(?<" + REGEX_GROUP_BUILD_STATUS + ">[A-Z]+)",
@@ -78,6 +96,9 @@ public class CiReport {
 	private static final String TEMPLATE_USER_DATA_BUILD_ITEM = "%s: [%s](%s) ";
 
 	private static final String UNKNOWN_URL = "TBD";
+
+	private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
+			.enable(SerializationFeature.INDENT_OUTPUT);
 
 	private final int pullRequestID;
 	private final Map<String, Build> builds;
@@ -98,19 +119,47 @@ public class CiReport {
 		if (!reportMatcher.matches()) {
 			throw new IllegalArgumentException("Not a valid CiReport comment.");
 		} else {
-			final String metaData = reportMatcher.group(REGEX_GROUP_META_DATA);
-			final Matcher metaDataMatcher = REGEX_PATTERN_META_DATA_LINES.matcher(metaData);
-			metaDataMatcher.reset();
-			while (metaDataMatcher.find()) {
-				final String commitHash = metaDataMatcher.group(REGEX_GROUP_COMMIT_HASH);
-				final String status = metaDataMatcher.group(REGEX_GROUP_BUILD_STATUS);
-				final String url = metaDataMatcher.group(REGEX_GROUP_BUILD_URL);
-				final String triggerType = metaDataMatcher.group(REGEX_GROUP_BUILD_TRIGGER_TYPE);
-				final String triggerID = metaDataMatcher.group(REGEX_GROUP_BUILD_TRIGGER_ID);
+			final String rawMetaData = reportMatcher.group(REGEX_GROUP_META_DATA);
+
+			final MetaData metaData;
+			// legacy mode
+			if (!rawMetaData.contains("{")) {
+				final Matcher metaDataMatcher = REGEX_PATTERN_META_DATA_LINES.matcher(rawMetaData);
+				metaDataMatcher.reset();
+				final List<MetaDataEntry> metaDataEntries = new ArrayList<>();
+				while (metaDataMatcher.find()) {
+					final String commitHash = metaDataMatcher.group(REGEX_GROUP_COMMIT_HASH);
+					final String status = metaDataMatcher.group(REGEX_GROUP_BUILD_STATUS);
+					final String url = metaDataMatcher.group(REGEX_GROUP_BUILD_URL);
+					final String triggerType = metaDataMatcher.group(REGEX_GROUP_BUILD_TRIGGER_TYPE);
+					final String triggerID = metaDataMatcher.group(REGEX_GROUP_BUILD_TRIGGER_ID);
+
+					metaDataEntries.add(new MetaDataEntry(
+							commitHash,
+							GitHubCheckerStatus.State.valueOf(status),
+							url,
+							triggerID,
+							Trigger.Type.valueOf(triggerType)));
+				}
+				metaData = new MetaData(metaDataEntries);
+			} else {
+				try {
+					metaData = OBJECT_MAPPER.readValue(rawMetaData, MetaData.class);
+				} catch (IOException e) {
+					LOG.error("Fatal error while parsing CI report.", e);
+					return CiReport.empty(pullRequestID);
+				}
+			}
+
+			metaData.getMetaDataEntries().forEach(metaDataEntry -> {
+				final String commitHash = metaDataEntry.getHash();
+				final GitHubCheckerStatus.State state = metaDataEntry.getStatus();
+				final String url = metaDataEntry.url;
+				final Trigger.Type triggerType = metaDataEntry.getTriggerType();
+				final String triggerID = metaDataEntry.getTriggerID();
 
 				final CiProvider ciProvider = ciActionsLookup.getActionsForString(url).map(CiActions::getCiProvider).orElse(CiProvider.Unknown);
 
-				GitHubCheckerStatus.State state = GitHubCheckerStatus.State.valueOf(status);
 				final GitHubCheckerStatus gitHubCheckerStatus;
 				if (state == GitHubCheckerStatus.State.UNKNOWN) {
 					gitHubCheckerStatus = new GitHubCheckerStatus(
@@ -128,8 +177,8 @@ public class CiReport {
 						pullRequestID,
 						commitHash,
 						Optional.of(gitHubCheckerStatus),
-						new Trigger(Trigger.Type.valueOf(triggerType), triggerID)));
-			}
+						new Trigger(triggerType, triggerID)));
+			});
 		}
 		return new CiReport(pullRequestID, builds);
 	}
@@ -167,28 +216,26 @@ public class CiReport {
 	}
 
 	private String createMetaDataSection() {
-		final StringBuilder metaDataSectionBuilder = new StringBuilder();
-		builds.values().forEach(build -> {
-			final GitHubCheckerStatus.State status;
-			final String url;
-			if (build.status.isPresent()) {
-				status = build.status.get().getState();
-				url = build.status.get().getDetailsUrl();
-			} else {
-				status = GitHubCheckerStatus.State.UNKNOWN;
-				url = UNKNOWN_URL;
-			}
+		final MetaData metaData = new MetaData(builds.values().stream()
+				.map(build -> {
+					final GitHubCheckerStatus.State status;
+					final String url;
+					if (build.status.isPresent()) {
+						status = build.status.get().getState();
+						url = build.status.get().getDetailsUrl();
+					} else {
+						status = GitHubCheckerStatus.State.UNKNOWN;
+						url = UNKNOWN_URL;
+					}
+					return new MetaDataEntry(build.commitHash, status, url, build.trigger.getId(), build.trigger.getType());
+				})
+				.collect(Collectors.toList()));
 
-			metaDataSectionBuilder.append(String.format(
-					TEMPLATE_META_DATA_LINE,
-					build.commitHash,
-					status.name(),
-					url,
-					build.trigger.getType(),
-					build.trigger.getId()));
-		});
-
-		return metaDataSectionBuilder.toString();
+		try {
+			return OBJECT_MAPPER.writeValueAsString(metaData);
+		} catch (JsonProcessingException e) {
+			throw new RuntimeException("Error while assembling meta data JSON.", e);
+		}
 	}
 
 	private String createUserDataSection() {
@@ -281,5 +328,71 @@ public class CiReport {
 				.replaceAll("\\*", "\\\\*")
 				// line-endings are standardized in GitHub comments
 				.replaceAll("\n", "(\\\\r\\\\n|\\\\n|\\\\r)");
+	}
+
+	private static class MetaData {
+		private final List<MetaDataEntry> metaDataEntries;
+		private final int version;
+
+		public MetaData(List<MetaDataEntry> metaDataEntries) {
+			this(1, metaDataEntries);
+		}
+
+		private MetaData(
+				@JsonProperty("version") int version,
+				@JsonProperty("metaDataEntries") List<MetaDataEntry> metaDataEntries) {
+			this.version = version;
+			this.metaDataEntries = metaDataEntries;
+		}
+
+		public int getVersion() {
+			return version;
+		}
+
+		public List<MetaDataEntry> getMetaDataEntries() {
+			return metaDataEntries;
+		}
+	}
+
+	private static class MetaDataEntry {
+		private final String hash;
+		private final GitHubCheckerStatus.State status;
+		private final String url;
+		private final String triggerID;
+		private final Trigger.Type triggerType;
+
+		@JsonCreator
+		public MetaDataEntry(
+				@JsonProperty("hash") String hash,
+				@JsonProperty("status") GitHubCheckerStatus.State status,
+				@JsonProperty("url") String url,
+				@JsonProperty("triggerID") String triggerID,
+				@JsonProperty("triggerType") Trigger.Type triggerType) {
+			this.hash = hash;
+			this.status = status;
+			this.url = url;
+			this.triggerID = triggerID;
+			this.triggerType = triggerType;
+		}
+
+		public String getHash() {
+			return hash;
+		}
+
+		public GitHubCheckerStatus.State getStatus() {
+			return status;
+		}
+
+		public String getUrl() {
+			return url;
+		}
+
+		public String getTriggerID() {
+			return triggerID;
+		}
+
+		public Trigger.Type getTriggerType() {
+			return triggerType;
+		}
 	}
 }
