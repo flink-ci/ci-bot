@@ -70,8 +70,6 @@ public class Core implements AutoCloseable {
 	private static final String REGEX_GROUP_COMMAND = "command";
 	private static final Pattern REGEX_PATTERN_COMMAND_MENTION = Pattern.compile("@flinkbot run (?<" + REGEX_GROUP_COMMAND + ">[\\w ]+)", Pattern.CASE_INSENSITIVE);
 
-	private static final String TEMPLATE_MESSAGE_LINE = "* %s : %s [Build](%s)\n";
-
 	private final String observedRepository;
 	private final String ciRepository;
 	private final String username;
@@ -79,7 +77,6 @@ public class Core implements AutoCloseable {
 	private final GitActions gitActions;
 	private final GitHubActions gitHubActions;
 	private final CiActionsContainer ciActions;
-	private int operationDelay;
 
 	private final Pattern githubCheckerNamePattern;
 
@@ -88,7 +85,7 @@ public class Core implements AutoCloseable {
 			.expireAfterWrite(10, TimeUnit.MINUTES)
 			.build();
 
-	public Core(String observedRepository, String ciRepository, String username, String githubToken, GitActions gitActions, GitHubActions gitHubActions, CiActionsContainer ciActions, int operationDelay, String gitHubCheckerNameFilter) throws Exception {
+	public Core(String observedRepository, String ciRepository, String username, String githubToken, GitActions gitActions, GitHubActions gitHubActions, CiActionsContainer ciActions, String gitHubCheckerNameFilter) throws Exception {
 		this.observedRepository = observedRepository;
 		this.ciRepository = ciRepository;
 		this.username = username;
@@ -96,7 +93,6 @@ public class Core implements AutoCloseable {
 		this.gitActions = gitActions;
 		this.gitHubActions = gitHubActions;
 		this.ciActions = ciActions;
-		this.operationDelay = operationDelay;
 		this.githubCheckerNamePattern = Pattern.compile(gitHubCheckerNameFilter);
 
 		setupGit(gitActions, observedRepository, ciRepository);

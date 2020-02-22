@@ -41,7 +41,6 @@ import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -96,7 +95,6 @@ public class CiBot implements Runnable, AutoCloseable {
 						new GitActionsImpl(LOCAL_BASE_PATH),
 						new GithubActionsImpl(ciActionsContainer, LOCAL_BASE_PATH.resolve("github"), arguments.githubToken),
 						ciActionsContainer,
-						DELAY_MILLI_SECONDS,
 						arguments.checkerNamePattern),
 				arguments.pollingIntervalInSeconds,
 				arguments.backlogHours)) {
