@@ -6,15 +6,6 @@ import java.util.Optional;
 
 public class CiReportTest {
 
-	private static final String EMPTY_LEGACY_CI_REPORT = "" +
-			"## CI report:\n" +
-			"\n";
-
-	private static final String LEGACY_CI_REPORT = "" +
-			"## CI report:\n" +
-			"\n" +
-			"* 1e9a07e9ffa1d8ae02e8fa26e543d5be01eacfe3 : SUCCESS [Build](https://travis-ci.com/flink-ci/flink/builds/123348301)\n";
-
 	private static final String EMPTY_CI_REPORT = "" +
 			"<!--\n" +
 			"Meta data\n" +
@@ -46,18 +37,6 @@ public class CiReportTest {
 			"-->\n" +
 			"## CI report:\n" +
 			"\n";
-
-	@Test
-	public void testEmptyLegacyParsing() {
-		CiReport ciReport = CiReport.fromComment(1, EMPTY_LEGACY_CI_REPORT, s -> Optional.empty());
-		System.out.println(ciReport);
-	}
-
-	@Test
-	public void testLegacyParsing() {
-		CiReport ciReport = CiReport.fromComment(1, LEGACY_CI_REPORT, s -> Optional.empty());
-		System.out.println(ciReport);
-	}
 
 	@Test
 	public void testParsing() {

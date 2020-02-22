@@ -56,11 +56,6 @@ public class CiReport {
 			"\n" +
 			TEMPLATE_CI_REPORT_COMMAND_HELP_SECTION;
 
-	private static final Pattern REGEX_PATTERN_LEGACY_CI_REPORT = Pattern.compile(
-			String.format(escapeRegex(TEMPLATE_CI_REPORT_USER_DATA_SECTION),
-					"(?<" + REGEX_GROUP_USER_DATA + ">.*)"),
-			Pattern.DOTALL);
-
 	private static final Pattern REGEX_PATTERN_CI_REPORT = Pattern.compile(
 			String.format(escapeRegex(TEMPLATE_CI_REPORT_DATA_SECTION),
 					"(?<" + REGEX_GROUP_META_DATA + ">.*)",
@@ -82,11 +77,6 @@ public class CiReport {
 	// Travis CI [FAILURE](https://travis-ci.com/flink-ci/flink/builds/138727067)
 	private static final String TEMPLATE_USER_DATA_BUILD_ITEM = "%s: [%s](%s) ";
 
-	private static final Pattern REGEX_PATTERN_USER_DATA_LINES = Pattern.compile(String.format(escapeRegex(TEMPLATE_USER_DATA_LINE),
-			"(?<" + REGEX_GROUP_COMMIT_HASH + ">[0-9a-f]+)",
-			"(?<" + REGEX_GROUP_BUILD_STATUS + ">[A-Z]+)",
-			"(?<" + REGEX_GROUP_BUILD_URL + ">.+)"));
-
 	private static final String UNKNOWN_URL = "TBD";
 
 	private final int pullRequestID;
@@ -106,32 +96,7 @@ public class CiReport {
 
 		final Matcher reportMatcher = REGEX_PATTERN_CI_REPORT.matcher(comment);
 		if (!reportMatcher.matches()) {
-			final Matcher legacyReportMatcher = REGEX_PATTERN_LEGACY_CI_REPORT.matcher(comment);
-			if (!legacyReportMatcher.matches()) {
-				throw new IllegalArgumentException();
-			}
-
-			// compatibility routine; extract data from user data instead
-			final String userData = legacyReportMatcher.group(REGEX_GROUP_USER_DATA);
-			final Matcher userDataMatcher = REGEX_PATTERN_USER_DATA_LINES.matcher(userData);
-			while (userDataMatcher.find()) {
-				final String commitHash = userDataMatcher.group(REGEX_GROUP_COMMIT_HASH);
-				final String status = userDataMatcher.group(REGEX_GROUP_BUILD_STATUS);
-				final String url = userDataMatcher.group(REGEX_GROUP_BUILD_URL);
-				final Trigger.Type triggerType = Trigger.Type.PUSH;
-				final String triggerID = commitHash;
-
-				final CiProvider ciProvider = ciActionsLookup.getActionsForString(url).map(CiActions::getCiProvider).orElse(CiProvider.Unknown);
-
-				builds.put(commitHash + triggerType.name() + triggerID + url.hashCode(), new Build(
-						pullRequestID,
-						commitHash,
-						Optional.of(new GitHubCheckerStatus(
-								GitHubCheckerStatus.State.valueOf(status),
-								url,
-								ciProvider)),
-						new Trigger(triggerType, triggerID)));
-			}
+			throw new IllegalArgumentException("Not a valid CiReport comment.");
 		} else {
 			final String metaData = reportMatcher.group(REGEX_GROUP_META_DATA);
 			final Matcher metaDataMatcher = REGEX_PATTERN_META_DATA_LINES.matcher(metaData);
@@ -170,7 +135,7 @@ public class CiReport {
 	}
 
 	public static boolean isCiReportComment(String comment) {
-		return REGEX_PATTERN_CI_REPORT.matcher(comment).matches() || REGEX_PATTERN_LEGACY_CI_REPORT.matcher(comment).matches();
+		return REGEX_PATTERN_CI_REPORT.matcher(comment).matches();
 	}
 
 	public void add(Build build) {
