@@ -6,11 +6,17 @@ A bot that mirrors pull requests opened against one repository (so called "obser
 ```
 Usage: java -jar ci-bot.jar [options]
   Options:
+  * --azureToken, -at
+      The Azure authorization token with cancel permissions for the CI
+      repository.
     --backlog, -b
       The number of hours the bot should go back in time when processing pull
       requests on startup.This should usually be inHours(currentTime -
       lastTimeBotShutdown).
       Default: 24
+    --checkerNamePattern, -cnp
+      A regex to select github checker runs to process.
+      Default: .*
   * --ciRepository, -cr
       The repo to run the CI.
   * --githubToken, -gt
