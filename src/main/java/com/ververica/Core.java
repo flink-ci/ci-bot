@@ -312,7 +312,7 @@ public class Core implements AutoCloseable {
 		}
 	}
 
-	public Build mirrorPullRequest(int pullRequestID) throws Exception {
+	public void mirrorPullRequest(int pullRequestID) throws Exception {
 		LOG.info("Mirroring PullRequest {}.", pullRequestID);
 
 		gitActions.fetchBranch(String.valueOf(pullRequestID), REMOTE_NAME_OBSERVED_REPOSITORY, true);
@@ -333,8 +333,6 @@ public class Core implements AutoCloseable {
 		gitActions.deleteBranch(
 				String.valueOf(pullRequestID),
 				true);
-
-		return new Build(pullRequestID, commitHash, Optional.empty(), new Trigger(Trigger.Type.PUSH, commitHash));
 	}
 
 	public void cancelBuild(Build buildToCancel) {
