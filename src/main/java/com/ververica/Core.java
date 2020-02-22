@@ -22,7 +22,7 @@ import com.beust.jcommander.Parameter;
 import com.beust.jcommander.Parameters;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
-import com.ververica.ci.CiActions;
+import com.ververica.ci.CiActionsContainer;
 import com.ververica.ci.CiProvider;
 import com.ververica.git.GitActions;
 import com.ververica.github.GitHubActions;
@@ -78,7 +78,7 @@ public class Core implements AutoCloseable {
 	private final String githubToken;
 	private final GitActions gitActions;
 	private final GitHubActions gitHubActions;
-	private final Map<CiProvider, CiActions> ciActions;
+	private final CiActionsContainer ciActions;
 	private int operationDelay;
 
 	private final Pattern githubCheckerNamePattern;
@@ -88,7 +88,7 @@ public class Core implements AutoCloseable {
 			.expireAfterWrite(10, TimeUnit.MINUTES)
 			.build();
 
-	public Core(String observedRepository, String ciRepository, String username, String githubToken, GitActions gitActions, GitHubActions gitHubActions, Map<CiProvider, CiActions> ciActions, int operationDelay, String gitHubCheckerNameFilter) throws Exception {
+	public Core(String observedRepository, String ciRepository, String username, String githubToken, GitActions gitActions, GitHubActions gitHubActions, CiActionsContainer ciActions, int operationDelay, String gitHubCheckerNameFilter) throws Exception {
 		this.observedRepository = observedRepository;
 		this.ciRepository = ciRepository;
 		this.username = username;
@@ -113,9 +113,7 @@ public class Core implements AutoCloseable {
 	public void close() {
 		gitActions.close();
 		gitHubActions.close();
-		for (CiActions ciActions : ciActions.values()) {
-			ciActions.close();
-		}
+		ciActions.close();
 		LOG.info("Shutting down.");
 	}
 
@@ -190,7 +188,7 @@ public class Core implements AutoCloseable {
 			final CiReport ciReport;
 			if (ciReportComment.isPresent()) {
 				LOG.debug("CiReport comment found.");
-				ciReport = CiReport.fromComment(pullRequestID, ciReportComment.get().getCommentText());
+				ciReport = CiReport.fromComment(pullRequestID, ciReportComment.get().getCommentText(), ciActions);
 				ciReport.getBuilds().map(build -> build.commitHash).forEach(reportedCommitHashes::add);
 
 				final Collection<Build> buildsToAdd = new ArrayList<>();
@@ -300,11 +298,12 @@ public class Core implements AutoCloseable {
 				LOG.debug("Ignoring {} run command since no build was triggered yet.", ciProvider.getName());
 			} else {
 				GitHubCheckerStatus gitHubCheckerStatus = lastBuild.status.get();
-				Optional<String> newUrl = ciActions.get(gitHubCheckerStatus.getCiProvider()).runBuild(
+				Optional<String> newUrl = ciActions.getActionsForProvider(gitHubCheckerStatus.getCiProvider())
+						.flatMap(ciAction -> ciAction.runBuild(
 						gitHubCheckerStatus.getDetailsUrl(),
 						getCiBranchName(lastBuild.pullRequestID, lastBuild.commitHash),
 						arguments
-				);
+				));
 				newUrl.ifPresent(url -> ciReport.add(new Build(
 						lastBuild.pullRequestID,
 						lastBuild.commitHash,
@@ -346,7 +345,7 @@ public class Core implements AutoCloseable {
 		if (buildToCancel.status.isPresent()) {
 			final GitHubCheckerStatus status = buildToCancel.status.get();
 			LOG.info("Canceling build {}@{}.", buildToCancel.pullRequestID, buildToCancel.commitHash);
-			ciActions.get(status.getCiProvider()).cancelBuild(status.getDetailsUrl());
+			ciActions.getActionsForProvider(status.getCiProvider()).ifPresent(ciAction -> ciAction.cancelBuild(status.getDetailsUrl()));
 		}
 	}
 

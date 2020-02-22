@@ -19,6 +19,7 @@ package com.ververica.ci.azure;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ververica.ci.CiActions;
+import com.ververica.ci.CiProvider;
 import okhttp3.Cache;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -124,7 +125,13 @@ public class AzureActionsImpl implements CiActions {
 		return Optional.empty();
 	}
 
-	public static String normalizeUrl(String detailsUrl) {
+	@Override
+	public CiProvider getCiProvider() {
+		return CiProvider.Azure;
+	}
+
+	@Override
+	public String normalizeUrl(String detailsUrl) {
 		// example urls:
 		// https://dev.azure.com/chesnay/0f3463e8-185e-423b-aa88-6cc39182caea/_build/results?buildId=1
 		// https://dev.azure.com/chesnay/0f3463e8-185e-423b-aa88-6cc39182caea/_build/results?buildId=1&view=logs&jobId=c6e12662-7e76-5fac-6ded-4b654ce98c1b

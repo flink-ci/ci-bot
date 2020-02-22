@@ -18,6 +18,7 @@
 package com.ververica.ci.travis;
 
 import com.ververica.ci.CiActions;
+import com.ververica.ci.CiProvider;
 import okhttp3.Cache;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -59,6 +60,16 @@ public class TravisActionsImpl implements CiActions {
 		final OkHttpClient.Builder okHttpClient = new OkHttpClient.Builder();
 		okHttpClient.cache(cache);
 		return okHttpClient.build();
+	}
+
+	@Override
+	public CiProvider getCiProvider() {
+		return CiProvider.Travis;
+	}
+
+	@Override
+	public String normalizeUrl(String url) {
+		return url;
 	}
 
 	@Override

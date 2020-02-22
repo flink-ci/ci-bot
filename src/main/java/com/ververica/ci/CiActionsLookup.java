@@ -17,18 +17,11 @@
 
 package com.ververica.ci;
 
-public enum CiProvider {
-	Travis("Travis"),
-	Azure("Azure"),
-	Unknown("Unknown");
+import java.util.Optional;
 
-	private final String name;
-
-	CiProvider(String name) {
-		this.name = name;
-	}
-
-	public String getName() {
-		return name;
-	}
+/**
+ * Interface for looking up q {@link CiActions} from a app slug or url.
+ */
+public interface CiActionsLookup {
+	Optional<CiActions> getActionsForString(String string);
 }

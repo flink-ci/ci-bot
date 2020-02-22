@@ -18,7 +18,7 @@
 package com.ververica;
 
 import com.beust.jcommander.JCommander;
-import com.ververica.ci.CiActions;
+import com.ververica.ci.CiActionsContainer;
 import com.ververica.ci.CiProvider;
 import com.ververica.ci.azure.AzureActionsImpl;
 import com.ververica.git.GitActionsImpl;
@@ -83,9 +83,9 @@ public class CiBot implements Runnable, AutoCloseable {
 		final RevisionInformation revisionInformation = RevisionInformation.getRevisionInformation();
 		LOG.info("Starting CiBot. Revision: {} Date: {}", revisionInformation.getCommitHash(), revisionInformation.getCommitDate());
 
-		final Map<CiProvider, CiActions> ciActions = new HashMap<>();
-		ciActions.put(CiProvider.Travis, new TravisActionsImpl(LOCAL_BASE_PATH.resolve("travis"), arguments.travisToken));
-		ciActions.put(CiProvider.Azure, new AzureActionsImpl(LOCAL_BASE_PATH.resolve("azure"), arguments.azureToken));
+		final CiActionsContainer ciActionsContainer = new CiActionsContainer(
+				new TravisActionsImpl(LOCAL_BASE_PATH.resolve("travis"), arguments.travisToken),
+				new AzureActionsImpl(LOCAL_BASE_PATH.resolve("azure"), arguments.azureToken));
 
 		try (final CiBot ciBot = new CiBot(
 				new Core(
@@ -94,8 +94,8 @@ public class CiBot implements Runnable, AutoCloseable {
 						arguments.username,
 						arguments.githubToken,
 						new GitActionsImpl(LOCAL_BASE_PATH),
-						new GithubActionsImpl(LOCAL_BASE_PATH.resolve("github"), arguments.githubToken),
-						ciActions,
+						new GithubActionsImpl(ciActionsContainer, LOCAL_BASE_PATH.resolve("github"), arguments.githubToken),
+						ciActionsContainer,
 						DELAY_MILLI_SECONDS,
 						arguments.checkerNamePattern),
 				arguments.pollingIntervalInSeconds,

@@ -20,7 +20,8 @@ package com.ververica.github;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
-import com.ververica.ci.CiProvider;
+import com.ververica.ci.CiActions;
+import com.ververica.ci.CiActionsLookup;
 import okhttp3.Cache;
 import okhttp3.OkHttpClient;
 import okhttp3.OkUrlFactory;
@@ -53,12 +54,14 @@ import java.util.stream.Stream;
 public class GithubActionsImpl implements GitHubActions {
 	private static final Logger LOG = LoggerFactory.getLogger(GithubActionsImpl.class);
 
+	private final CiActionsLookup ciActionsLookup;
 	private final Cache cache;
 	private final OkHttpClient okHttpClient;
 	private final GitHub gitHub;
 	private final String authorizationToken;
 
-	public GithubActionsImpl(Path temporaryDirectory, String authorizationToken) throws IOException {
+	public GithubActionsImpl(CiActionsLookup ciActionsLookup, Path temporaryDirectory, String authorizationToken) throws IOException {
+		this.ciActionsLookup = ciActionsLookup;
 		cache = new Cache(temporaryDirectory.toFile(), 4 * 1024 * 1024);
 		okHttpClient = setupOkHttpClient(cache);
 		gitHub = setupGitHub(authorizationToken, okHttpClient);
@@ -129,14 +132,20 @@ public class GithubActionsImpl implements GitHubActions {
 							? Optional.empty()
 							: Optional.of(GHConclusion.valueOf(conclusionNode.asText().toUpperCase()));
 
-					final CiProvider ciProvider = CiProvider.fromSlug(next.get("app").get("slug").asText());
+					final String appSlug = next.get("app").get("slug").asText();
+					final Optional<CiActions> ciActionsOptional = ciActionsLookup.getActionsForString(appSlug);
+					if (!ciActionsOptional.isPresent()) {
+						LOG.warn("Skipping checker since CI provider could not be determined. Slug={}.", appSlug);
+						continue;
+					}
+					CiActions ciActions = ciActionsOptional.get();
 
 					final JsonNode detailsUrlNode = next.get("details_url");
-					final String detailsUrl = ciProvider.normalizeUrl(detailsUrlNode.asText());
+					final String detailsUrl = ciActions.normalizeUrl(detailsUrlNode.asText());
 
 					final GitHubCheckerStatus checkerStatus;
 					if (status != GHStatus.COMPLETED) {
-						checkerStatus = new GitHubCheckerStatus(GitHubCheckerStatus.State.PENDING, detailsUrl, ciProvider);
+						checkerStatus = new GitHubCheckerStatus(GitHubCheckerStatus.State.PENDING, detailsUrl, ciActions.getCiProvider());
 					} else {
 						if (!conclusion.isPresent()) {
 							LOG.warn("Completed check did not have conclusion attached.");
@@ -154,7 +163,7 @@ public class GithubActionsImpl implements GitHubActions {
 									state = GitHubCheckerStatus.State.FAILURE;
 									break;
 							}
-							checkerStatus = new GitHubCheckerStatus(state, detailsUrl, ciProvider);
+							checkerStatus = new GitHubCheckerStatus(state, detailsUrl, ciActions.getCiProvider());
 						}
 					}
 					if (checkerStatus != null) {

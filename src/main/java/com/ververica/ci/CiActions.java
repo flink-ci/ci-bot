@@ -21,6 +21,10 @@ import java.util.List;
 import java.util.Optional;
 
 public interface CiActions extends AutoCloseable {
+	CiProvider getCiProvider();
+
+	String normalizeUrl(String url);
+
 	void cancelBuild(String detailsUrl);
 
 	Optional<String> runBuild(String detailsUrl, String branch, List<String> arguments);

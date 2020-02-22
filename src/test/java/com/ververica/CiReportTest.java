@@ -2,6 +2,8 @@ package com.ververica;
 
 import org.junit.Test;
 
+import java.util.Optional;
+
 public class CiReportTest {
 
 	private static final String EMPTY_LEGACY_CI_REPORT = "" +
@@ -47,37 +49,37 @@ public class CiReportTest {
 
 	@Test
 	public void testEmptyLegacyParsing() {
-		CiReport ciReport = CiReport.fromComment(1, EMPTY_LEGACY_CI_REPORT);
+		CiReport ciReport = CiReport.fromComment(1, EMPTY_LEGACY_CI_REPORT, s -> Optional.empty());
 		System.out.println(ciReport);
 	}
 
 	@Test
 	public void testLegacyParsing() {
-		CiReport ciReport = CiReport.fromComment(1, LEGACY_CI_REPORT);
+		CiReport ciReport = CiReport.fromComment(1, LEGACY_CI_REPORT, s -> Optional.empty());
 		System.out.println(ciReport);
 	}
 
 	@Test
 	public void testParsing() {
-		CiReport ciReport = CiReport.fromComment(1, CI_REPORT);
+		CiReport ciReport = CiReport.fromComment(1, CI_REPORT, s -> Optional.empty());
 		System.out.println(ciReport);
 	}
 
 	@Test
 	public void testEmptyParsing() {
-		CiReport ciReport = CiReport.fromComment(1, EMPTY_CI_REPORT);
+		CiReport ciReport = CiReport.fromComment(1, EMPTY_CI_REPORT, s -> Optional.empty());
 		System.out.println(ciReport);
 	}
 
 	@Test
 	public void testParsingWithMultipleBuilds() {
-		CiReport ciReport = CiReport.fromComment(1, CI_REPORT_WITH_MULTIPLE_BUILDS);
+		CiReport ciReport = CiReport.fromComment(1, CI_REPORT_WITH_MULTIPLE_BUILDS, s -> Optional.empty());
 		System.out.println(ciReport);
 	}
 
 	@Test
 	public void testParsingWithUnknownStatus() {
-		CiReport ciReport = CiReport.fromComment(1, CI_REPORT_WITH_UNKNOWN_STATUS);
+		CiReport ciReport = CiReport.fromComment(1, CI_REPORT_WITH_UNKNOWN_STATUS, s -> Optional.empty());
 		System.out.println(ciReport);
 	}
 }

@@ -1,5 +1,7 @@
 package com.ververica;
 
+import com.ververica.ci.CiActions;
+import com.ververica.ci.CiActionsLookup;
 import com.ververica.ci.CiProvider;
 import com.ververica.github.GitHubCheckerStatus;
 
@@ -99,7 +101,7 @@ public class CiReport {
 		return new CiReport(pullRequestID, new LinkedHashMap<>());
 	}
 
-	public static CiReport fromComment(int pullRequestID, String comment) {
+	public static CiReport fromComment(int pullRequestID, String comment, CiActionsLookup ciActionsLookup) {
 		final Map<String, Build> builds = new LinkedHashMap<>();
 
 		final Matcher reportMatcher = REGEX_PATTERN_CI_REPORT.matcher(comment);
@@ -119,13 +121,15 @@ public class CiReport {
 				final Trigger.Type triggerType = Trigger.Type.PUSH;
 				final String triggerID = commitHash;
 
+				final CiProvider ciProvider = ciActionsLookup.getActionsForString(url).map(CiActions::getCiProvider).orElse(CiProvider.Unknown);
+
 				builds.put(commitHash + triggerType.name() + triggerID + url.hashCode(), new Build(
 						pullRequestID,
 						commitHash,
 						Optional.of(new GitHubCheckerStatus(
 								GitHubCheckerStatus.State.valueOf(status),
 								url,
-								CiProvider.fromUrl(url))),
+								ciProvider)),
 						new Trigger(triggerType, triggerID)));
 			}
 		} else {
@@ -139,6 +143,8 @@ public class CiReport {
 				final String triggerType = metaDataMatcher.group(REGEX_GROUP_BUILD_TRIGGER_TYPE);
 				final String triggerID = metaDataMatcher.group(REGEX_GROUP_BUILD_TRIGGER_ID);
 
+				final CiProvider ciProvider = ciActionsLookup.getActionsForString(url).map(CiActions::getCiProvider).orElse(CiProvider.Unknown);
+
 				GitHubCheckerStatus.State state = GitHubCheckerStatus.State.valueOf(status);
 				final GitHubCheckerStatus gitHubCheckerStatus;
 				if (state == GitHubCheckerStatus.State.UNKNOWN) {
@@ -150,7 +156,7 @@ public class CiReport {
 					gitHubCheckerStatus = new GitHubCheckerStatus(
 							state,
 							url,
-							CiProvider.fromUrl(url));
+							ciProvider);
 				}
 
 				builds.put(commitHash + triggerType + triggerID + gitHubCheckerStatus.getDetailsUrl().hashCode(), new Build(
