@@ -148,6 +148,7 @@ public class CiBot implements Runnable, AutoCloseable {
 				} catch (GHFileNotFoundException gfnfe) {
 					LOG.error("GitHub server error.", gfnfe);
 				}
+				LOG.info("Taking a nap...");
 				Thread.sleep(pollingIntervalInSeconds * 1000);
 			}
 		} catch (Exception e) {
