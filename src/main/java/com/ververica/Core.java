@@ -39,11 +39,11 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -196,7 +196,7 @@ public class Core implements AutoCloseable {
 		LOG.info("Retrieving observed repository state ({}).", observedRepository);
 
 		Iterable<GithubPullRequest> recentlyUpdatedOpenPullRequests = gitHubActions.getRecentlyUpdatedOpenPullRequests(observedRepository, lastUpdatedAtCutoff);
-		Map<Integer, GithubPullRequest> pullRequestsToProcessByID = new HashMap<>();
+		Map<Integer, GithubPullRequest> pullRequestsToProcessByID = new TreeMap<>(Integer::compareTo);
 		recentlyUpdatedOpenPullRequests.forEach(pr -> pullRequestsToProcessByID.put(pr.getID(), pr));
 		StreamSupport.stream(gitHubActions.getBranches(ciRepository).spliterator(), false)
 				.map(REGEX_PATTERN_CI_BRANCH::matcher)

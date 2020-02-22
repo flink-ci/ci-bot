@@ -43,11 +43,13 @@ import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
-import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collector;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -172,7 +174,7 @@ public class CiBot implements Runnable, AutoCloseable {
 	private void tick(Date lastUpdateTime) throws Exception {
 		final ObservedState observedRepositoryState = core.fetchGithubState(lastUpdateTime);
 
-		final Set<Integer> pullRequestsWithNewBuilds = new HashSet<>();
+		final Set<Integer> pullRequestsWithNewBuilds = new LinkedHashSet<>();
 		List<CiReport> ciReports = observedRepositoryState.getCiReports().collect(Collectors.toList());
 		for (CiReport ciReport : ciReports) {
 			List<Build> requiredBuilds = ciReport.getBuilds().filter(build -> !build.status.isPresent()).collect(Collectors.toList());
@@ -195,7 +197,7 @@ public class CiBot implements Runnable, AutoCloseable {
 			}
 		});
 
-		final Map<Integer, List<Build>> pendingBuildsPerPullRequestId = observedRepositoryState.getPendingBuilds().collect(Collectors.groupingBy(build -> build.pullRequestID));
+		final Map<Integer, List<Build>> pendingBuildsPerPullRequestId = observedRepositoryState.getPendingBuilds().collect(groupedInSortedMap());
 		for (Map.Entry<Integer, List<Build>> pendingBuilds : pendingBuildsPerPullRequestId.entrySet()) {
 			final int pullRequestID = pendingBuilds.getKey();
 			if (core.isPullRequestClosed(pullRequestID)) {
@@ -207,7 +209,7 @@ public class CiBot implements Runnable, AutoCloseable {
 			}
 		}
 
-		final Map<Integer, List<Build>> finishedBuildsPerPullRequestId = observedRepositoryState.getFinishedBuilds().collect(Collectors.groupingBy(build -> build.pullRequestID));
+		final Map<Integer, List<Build>> finishedBuildsPerPullRequestId = observedRepositoryState.getFinishedBuilds().collect(groupedInSortedMap());
 		for (Map.Entry<Integer, List<Build>> finishedBuilds : finishedBuildsPerPullRequestId.entrySet()) {
 			final int pullRequestID = finishedBuilds.getKey();
 			if (core.isPullRequestClosed(pullRequestID)) {
@@ -217,5 +219,9 @@ public class CiBot implements Runnable, AutoCloseable {
 				}
 			}
 		}
+	}
+
+	private static Collector<Build, ?, Map<Integer, List<Build>>> groupedInSortedMap() {
+		return Collectors.groupingBy(build -> build.pullRequestID, LinkedHashMap::new, Collectors.toList());
 	}
 }
