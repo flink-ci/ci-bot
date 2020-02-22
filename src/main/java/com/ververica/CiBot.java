@@ -18,6 +18,8 @@
 package com.ververica;
 
 import com.beust.jcommander.JCommander;
+import com.beust.jcommander.ParameterException;
+import com.ververica.ci.CiActions;
 import com.ververica.ci.CiActionsContainer;
 import com.ververica.ci.CiProvider;
 import com.ververica.ci.azure.AzureActionsImpl;
@@ -47,6 +49,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * A bot that mirrors pull requests opened against one repository (so called "observed repository") to branches in
@@ -82,9 +85,25 @@ public class CiBot implements Runnable, AutoCloseable {
 		final RevisionInformation revisionInformation = RevisionInformation.getRevisionInformation();
 		LOG.info("Starting CiBot. Revision: {} Date: {}", revisionInformation.getCommitHash(), revisionInformation.getCommitDate());
 
-		final CiActionsContainer ciActionsContainer = new CiActionsContainer(
-				new TravisActionsImpl(LOCAL_BASE_PATH.resolve("travis"), arguments.travisToken),
-				new AzureActionsImpl(LOCAL_BASE_PATH.resolve("azure"), arguments.azureToken));
+		final CiActions[] ciActions =
+				Stream.concat(
+						arguments.travisToken == null
+								? Stream.empty()
+								: Stream.of(new TravisActionsImpl(LOCAL_BASE_PATH.resolve("travis"), arguments.travisToken)),
+						arguments.azureToken == null
+								? Stream.empty()
+								: Stream.of(new AzureActionsImpl(LOCAL_BASE_PATH.resolve("azure"), arguments.azureToken)))
+						.peek(ciAction -> LOG.info("Configured ci provider {}.", ciAction))
+						.toArray(CiActions[]::new);
+
+
+		if (ciActions.length == 0) {
+			final ParameterException parameterException = new ParameterException("At least one ci provider must be configured.");
+			parameterException.setJCommander(jCommander);
+			throw parameterException;
+		}
+
+		final CiActionsContainer ciActionsContainer = new CiActionsContainer(ciActions);
 
 		try (final CiBot ciBot = new CiBot(
 				new Core(
