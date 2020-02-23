@@ -23,11 +23,13 @@ import com.ververica.ci.CiActions;
 import com.ververica.ci.CiActionsContainer;
 import com.ververica.ci.CiProvider;
 import com.ververica.ci.azure.AzureActionsImpl;
+import com.ververica.ci.travis.TravisActionsImpl;
 import com.ververica.git.GitActionsImpl;
 import com.ververica.git.GitException;
 import com.ververica.github.GitHubCheckerStatus;
 import com.ververica.github.GithubActionsImpl;
-import com.ververica.ci.travis.TravisActionsImpl;
+import com.ververica.utils.ConsumerWithException;
+import com.ververica.utils.OneShot;
 import com.ververica.utils.RevisionInformation;
 import org.apache.commons.io.FileUtils;
 import org.eclipse.jgit.api.errors.TransportException;
@@ -44,13 +46,8 @@ import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Collector;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -179,73 +176,49 @@ public class CiBot implements Runnable, AutoCloseable {
 	private void tick(Date lastUpdateTime) throws Exception {
 		final ObservedState observedRepositoryState = core.fetchGithubState(lastUpdateTime);
 
-		final Set<Integer> pullRequestsWithNewBuilds = new LinkedHashSet<>();
-		List<CiReport> ciReports = observedRepositoryState.getCiReports().collect(Collectors.toList());
-		for (CiReport ciReport : ciReports) {
-			List<Build> requiredBuilds = ciReport.getBuilds().filter(build -> !build.status.isPresent()).collect(Collectors.toList());
-			for (Build build : requiredBuilds) {
-				core.mirrorPullRequest(build.pullRequestID);
-				pullRequestsWithNewBuilds.add(build.pullRequestID);
-				ciReport.add(new Build(build.pullRequestID, build.commitHash, Optional.of(new GitHubCheckerStatus(GitHubCheckerStatus.State.UNKNOWN, "TBD", CiProvider.Unknown)), build.trigger));
-			}
-		}
+		final ConsumerWithException<CiReport, Exception> pullRequestProcessor = ciReport -> {
+			final int pullRequestID = ciReport.getPullRequestID();
 
-		observedRepositoryState.getCiReports().forEach(ciReport -> {
-			try {
-				if (ciReport.getBuilds().anyMatch(build -> true)) {
-					core.updateCiReport(ciReport);
-				} else {
-					LOG.debug("Skipping CI report update for pull request {} update since report contains no builds.", formatPullRequestID(ciReport.getPullRequestID()));
-				}
-			} catch (IOException e) {
-				LOG.debug("Error while updating CI report.", e);
-			}
-		});
-
-		final Map<Integer, List<Build>> pendingBuildsPerPullRequestId = observedRepositoryState.getPendingBuilds().collect(groupedInSortedMap());
-		for (Map.Entry<Integer, List<Build>> pendingBuilds : pendingBuildsPerPullRequestId.entrySet()) {
-			final int pullRequestID = pendingBuilds.getKey();
 			if (core.isPullRequestClosed(pullRequestID)) {
-				LOG.info("Canceling pending builds for PullRequest {} since the PullRequest was closed.", formatPullRequestID(pullRequestID));
-				pendingBuilds.getValue().forEach(core::cancelBuild);
-			} else if (pullRequestsWithNewBuilds.contains(pullRequestID)) {
-				LOG.info("Canceling pending builds for PullRequest {} since a new build was triggered.", formatPullRequestID(pullRequestID));
-				pendingBuilds.getValue().forEach(core::cancelBuild);
+				LOG.info("PullRequest {} was closed; canceling builds and deleting branches.", formatPullRequestID(pullRequestID));
+				ciReport.getPendingBuilds().forEach(core::cancelBuild);
+				ciReport.getFinishedBuilds().forEach(core::deleteCiBranch);
+				return;
 			}
-		}
 
-		final Map<Integer, List<Build>> finishedBuildsPerPullRequestId = observedRepositoryState.getFinishedBuilds().collect(groupedInSortedMap());
-		for (Map.Entry<Integer, List<Build>> finishedBuilds : finishedBuildsPerPullRequestId.entrySet()) {
-			final int pullRequestID = finishedBuilds.getKey();
-			if (core.isPullRequestClosed(pullRequestID)) {
-				LOG.info("Deleting branches for PullRequest {} since PullRequest was closed.", formatPullRequestID(pullRequestID));
-				for (Build finishedBuild : finishedBuilds.getValue()) {
-					core.deleteCiBranch(finishedBuild);
-				}
-			} else {
-				final int numBuilds = finishedBuilds.getValue().size();
-				final String lastHash = finishedBuilds.getValue().get(numBuilds - 1).commitHash;
+			ciReport.getRequiredBuilds()
+					.peek(OneShot.prime(any -> {
+						LOG.info("Canceling pending builds for PullRequest {} since a new build was triggered.", formatPullRequestID(pullRequestID));
+						ciReport.getPendingBuilds().forEach(core::cancelBuild);
+					}))
+					.forEach(build -> {
+						core.mirrorPullRequest(build.pullRequestID);
+						ciReport.add(new Build(build.pullRequestID, build.commitHash, Optional.of(new GitHubCheckerStatus(GitHubCheckerStatus.State.UNKNOWN, "TBD", CiProvider.Unknown)), build.trigger));
+					});
 
-				final List<Build> oldBuilds = finishedBuilds.getValue().stream().filter(build -> !build.commitHash.equals(lastHash)).collect(Collectors.toList());
+			if (ciReport.getBuilds().count() > 0) {
+				core.updateCiReport(ciReport);
+			}
+
+			final List<Build> finishedBuilds = ciReport.getFinishedBuilds().collect(Collectors.toList());
+			final int numFinishedBuilds = finishedBuilds.size();
+			if (numFinishedBuilds > 0) {
+				final String lastHash = finishedBuilds.get(numFinishedBuilds - 1).commitHash;
+
+				final List<Build> oldBuilds = finishedBuilds.stream().filter(build -> !build.commitHash.equals(lastHash)).collect(Collectors.toList());
 				if (!oldBuilds.isEmpty()) {
 					LOG.info("Deleting {} unnecessary branches for PullRequest {}, since newer commits are present. Retaining branches for commit {}.",
 							oldBuilds.size(),
 							formatPullRequestID(pullRequestID),
 							lastHash);
 
-					for (Build oldBuild : oldBuilds) {
-						try {
-							core.deleteCiBranch(oldBuild);
-						} catch (Exception e) {
-							LOG.debug("Error while deleting CI branch.");
-						}
-					}
+					oldBuilds.forEach(core::deleteCiBranch);
 				}
 			}
-		}
-	}
+		};
 
-	private static Collector<Build, ?, Map<Integer, List<Build>>> groupedInSortedMap() {
-		return Collectors.groupingBy(build -> build.pullRequestID, LinkedHashMap::new, Collectors.toList());
+		observedRepositoryState.getCiReports().forEach(ConsumerWithException.wrap(
+				pullRequestProcessor,
+				(r, e) -> LOG.error("Error while processing pull request {}.", formatPullRequestID(r.getPullRequestID()), e)));
 	}
 }

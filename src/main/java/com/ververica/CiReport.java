@@ -26,6 +26,8 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static com.ververica.github.GitHubCheckerStatus.State.PENDING;
+
 public class CiReport {
 
 	private static final Logger LOG = LoggerFactory.getLogger(CiReport.class);
@@ -204,6 +206,17 @@ public class CiReport {
 
 	public Stream<Build> getBuilds() {
 		return builds.values().stream();
+	}
+
+	public Stream<Build> getRequiredBuilds() {
+		return getBuilds().filter(build -> !build.status.isPresent());
+	}
+	public Stream<Build> getPendingBuilds() {
+		return getBuilds().filter(report -> report.status.isPresent() && report.status.get().getState() == PENDING);
+	}
+
+	public Stream<Build> getFinishedBuilds() {
+		return getBuilds().filter(report -> report.status.isPresent() && report.status.get().getState() != PENDING);
 	}
 
 	public int getPullRequestID() {

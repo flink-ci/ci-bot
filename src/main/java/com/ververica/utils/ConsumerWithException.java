@@ -17,6 +17,19 @@
 
 package com.ververica.utils;
 
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+
 public interface ConsumerWithException<T, E extends Throwable> {
 	void accept(T t) throws E;
+
+	static <T, E extends Exception> Consumer<T> wrap(ConsumerWithException<T, E> consumerWithException, BiConsumer<T, Exception> errorHandler) {
+		return t -> {
+			try {
+				consumerWithException.accept(t);
+			} catch (Exception e) {
+				errorHandler.accept(t, e);
+			}
+		};
+	}
 }
