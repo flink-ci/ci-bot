@@ -98,7 +98,7 @@ public class Core implements AutoCloseable {
 			.build();
 
 	private final Cache<String, Boolean> pendingBranchDeletions = CacheBuilder.newBuilder()
-			.maximumSize(50)
+			.maximumSize(1000)
 			.expireAfterWrite(1, TimeUnit.HOURS)
 			.build();
 

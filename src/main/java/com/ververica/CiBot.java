@@ -219,6 +219,25 @@ public class CiBot implements Runnable, AutoCloseable {
 				for (Build finishedBuild : finishedBuilds.getValue()) {
 					core.deleteCiBranch(finishedBuild);
 				}
+			} else {
+				final int numBuilds = finishedBuilds.getValue().size();
+				final String lastHash = finishedBuilds.getValue().get(numBuilds - 1).commitHash;
+
+				final List<Build> oldBuilds = finishedBuilds.getValue().stream().filter(build -> !build.commitHash.equals(lastHash)).collect(Collectors.toList());
+				if (!oldBuilds.isEmpty()) {
+					LOG.info("Deleting {} unnecessary branches for PullRequest {}, since newer commits are present. Retaining branches for commit {}.",
+							oldBuilds.size(),
+							formatPullRequestID(pullRequestID),
+							lastHash);
+
+					for (Build oldBuild : oldBuilds) {
+						try {
+							core.deleteCiBranch(oldBuild);
+						} catch (Exception e) {
+							LOG.debug("Error while deleting CI branch.");
+						}
+					}
+				}
 			}
 		}
 	}
