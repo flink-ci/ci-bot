@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -212,12 +213,23 @@ public class CiReport {
 		return getBuilds().filter(build -> !build.status.isPresent());
 	}
 	public Stream<Build> getPendingBuilds() {
-		return getBuilds().filter(report -> report.status.isPresent() && report.status.get().getState() == PENDING);
+		return filterByStates(PENDING);
 	}
 
 	public Stream<Build> getFinishedBuilds() {
-		return getBuilds().filter(report -> report.status.isPresent() && report.status.get().getState() != PENDING);
+		return filterByStates(
+				GitHubCheckerStatus.State.SUCCESS,
+				GitHubCheckerStatus.State.FAILURE,
+				GitHubCheckerStatus.State.CANCELED);
 	}
+
+	private Stream<Build> filterByStates(GitHubCheckerStatus.State state, GitHubCheckerStatus.State ... states) {
+		EnumSet<GitHubCheckerStatus.State> targetStates = EnumSet.of(state, states);
+		return getBuilds()
+				.filter(b -> b.status.isPresent())
+				.filter(b -> targetStates.contains(b.status.get().getState()));
+	}
+
 
 	public int getPullRequestID() {
 		return pullRequestID;
@@ -269,7 +281,11 @@ public class CiReport {
 
 			final StringBuilder reportEntryBuilder = new StringBuilder();
 			for (Build build : builds) {
-				build.status.ifPresent(status -> {
+				if (build.status.isPresent()) {
+					GitHubCheckerStatus status = build.status.get();
+					if (status.getState() == GitHubCheckerStatus.State.DELETED) {
+						return;
+					}
 					if (status.getState() != GitHubCheckerStatus.State.UNKNOWN) {
 						reportEntryBuilder.append(
 								String.format(
@@ -278,7 +294,7 @@ public class CiReport {
 										status.getState().name(),
 										status.getDetailsUrl()));
 					}
-				});
+				}
 			}
 
 			if (reportEntryBuilder.length() == 0) {

@@ -18,6 +18,15 @@ class Build {
 		this.trigger = trigger;
 	}
 
+	public Build asDeleted() {
+		return new Build(
+				pullRequestID,
+				commitHash,
+				status.map(s -> new GitHubCheckerStatus(GitHubCheckerStatus.State.DELETED, s.getDetailsUrl(), s.getCiProvider())),
+				trigger
+		);
+	}
+
 	@Override
 	public boolean equals(Object o) {
 		if (this == o) {

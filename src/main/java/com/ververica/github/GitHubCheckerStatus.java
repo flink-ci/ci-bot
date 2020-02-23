@@ -47,6 +47,7 @@ public class GitHubCheckerStatus {
 		SUCCESS,
 		CANCELED,
 		FAILURE,
+		DELETED, // quite hacky since this is not a state of the checker, but the CI branch
 		UNKNOWN
 	}
 }

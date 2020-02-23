@@ -196,10 +196,6 @@ public class CiBot implements Runnable, AutoCloseable {
 						ciReport.add(new Build(build.pullRequestID, build.commitHash, Optional.of(new GitHubCheckerStatus(GitHubCheckerStatus.State.UNKNOWN, "TBD", CiProvider.Unknown)), build.trigger));
 					});
 
-			if (ciReport.getBuilds().count() > 0) {
-				core.updateCiReport(ciReport);
-			}
-
 			final List<Build> finishedBuilds = ciReport.getFinishedBuilds().collect(Collectors.toList());
 			final int numFinishedBuilds = finishedBuilds.size();
 			if (numFinishedBuilds > 0) {
@@ -212,8 +208,15 @@ public class CiBot implements Runnable, AutoCloseable {
 							formatPullRequestID(pullRequestID),
 							lastHash);
 
-					oldBuilds.forEach(core::deleteCiBranch);
+					oldBuilds.stream()
+							.peek(core::deleteCiBranch)
+							.map(Build::asDeleted)
+							.forEach(ciReport::add);
 				}
+			}
+
+			if (ciReport.getBuilds().count() > 0) {
+				core.updateCiReport(ciReport);
 			}
 		};
 
