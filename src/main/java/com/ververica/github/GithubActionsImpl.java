@@ -178,8 +178,7 @@ public class GithubActionsImpl implements GitHubActions {
 				LOG.debug("Raw Check JSON: {}.", rawJson);
 				throw e;
 			}
-		} catch (
-				Exception e) {
+		} catch (Exception e) {
 			// super janky but don't bother handling this in a better way
 			// there are just too many failure points here
 			LOG.warn("Could not retrieve commit state.", e);
