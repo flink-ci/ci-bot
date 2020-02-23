@@ -151,6 +151,8 @@ public class CiBot implements Runnable, AutoCloseable {
 					LOG.error("Generic github exception occurred.", ge);
 				} catch (GHFileNotFoundException gfnfe) {
 					LOG.error("GitHub server error.", gfnfe);
+				} catch (IOException ioe) {
+					LOG.error("Some IO error.", ioe);
 				}
 				LOG.info("Taking a nap...");
 				Thread.sleep(pollingIntervalInSeconds * 1000);
