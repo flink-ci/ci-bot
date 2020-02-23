@@ -167,7 +167,7 @@ public class Core implements AutoCloseable {
 	}
 
 	private Optional<GitHubComment> getCiReportComment(int pullRequestID) throws IOException {
-		LOG.info("Retrieving CI report for pull request {}.", formatPullRequestID(pullRequestID));
+		LOG.debug("Retrieving CI report for pull request {}.", formatPullRequestID(pullRequestID));
 		return StreamSupport.stream(gitHubActions.getComments(observedRepository, pullRequestID, username).spliterator(), false)
 				.filter(comment -> CiReport.isCiReportComment(comment.getCommentText()))
 				.findAny();
