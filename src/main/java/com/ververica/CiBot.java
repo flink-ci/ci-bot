@@ -24,6 +24,7 @@ import com.ververica.ci.CiActionsContainer;
 import com.ververica.ci.CiProvider;
 import com.ververica.ci.azure.AzureActionsImpl;
 import com.ververica.git.GitActionsImpl;
+import com.ververica.git.GitException;
 import com.ververica.github.GitHubCheckerStatus;
 import com.ververica.github.GithubActionsImpl;
 import com.ververica.ci.travis.TravisActionsImpl;
@@ -153,6 +154,8 @@ public class CiBot implements Runnable, AutoCloseable {
 					LOG.error("GitHub server error.", gfnfe);
 				} catch (IOException ioe) {
 					LOG.error("Some IO error.", ioe);
+				} catch (GitException ge) {
+					LOG.error("A Git error has occurred.", ge);
 				}
 				LOG.info("Taking a nap...");
 				Thread.sleep(pollingIntervalInSeconds * 1000);

@@ -66,16 +66,20 @@ public class GitActionsImpl implements GitActions {
 	}
 
 	@Override
-	public void addRemote(String repositoryUrl, String remoteName) throws GitAPIException {
+	public void addRemote(String repositoryUrl, String remoteName) throws GitException {
 		LOG.debug("Setting up remote {} for repository ({}).", remoteName, repositoryUrl);
-		git.remoteAdd()
-				.setName(remoteName)
-				.setUri(new URIish().setPath(repositoryUrl))
-				.call();
+		try {
+			git.remoteAdd()
+					.setName(remoteName)
+					.setUri(new URIish().setPath(repositoryUrl))
+					.call();
+		} catch (GitAPIException e) {
+			throw new GitException(e);
+		}
 	}
 
 	@Override
-	public void fetchBranch(String remoteBranchName, String remoteName, boolean fetchPrBranch) throws GitAPIException {
+	public void fetchBranch(String remoteBranchName, String remoteName, boolean fetchPrBranch) throws GitException {
 		final RefSpec refSpec = new RefSpec(
 				fetchPrBranch
 						? String.format("refs/pull/%s/head:%s", remoteBranchName, remoteBranchName)
@@ -83,31 +87,39 @@ public class GitActionsImpl implements GitActions {
 
 		LOG.debug("Fetching branch {} from {}.", refSpec, remoteName);
 
-		git.fetch()
-				.setRemote(remoteName)
-				// this should use a logger instead, but this would break the output being updated in-place
-				.setProgressMonitor(new TextProgressMonitor())
-				.setRefSpecs(refSpec)
-				.call();
+		try {
+			git.fetch()
+					.setRemote(remoteName)
+					// this should use a logger instead, but this would break the output being updated in-place
+					.setProgressMonitor(new TextProgressMonitor())
+					.setRefSpecs(refSpec)
+					.call();
+		} catch (GitAPIException e) {
+			throw new GitException(e);
+		}
 	}
 
 	@Override
-	public void pushBranch(String localBranchName, String remoteBranchName, String remoteName, boolean force, String authenticationToken) throws GitAPIException {
+	public void pushBranch(String localBranchName, String remoteBranchName, String remoteName, boolean force, String authenticationToken) throws GitException {
 		LOG.debug("Pushing branch {} to {}/{}.", localBranchName, remoteName, remoteBranchName);
 		internalPushGitBranch(localBranchName, remoteBranchName, remoteName, force, authenticationToken);
 	}
 
 	@Override
-	public void deleteBranch(String localBranchName, boolean force) throws GitAPIException {
+	public void deleteBranch(String localBranchName, boolean force) throws GitException {
 		LOG.debug("Deleting branch {}.", localBranchName);
-		git.branchDelete()
-				.setBranchNames(localBranchName)
-				.setForce(true)
-				.call();
+		try {
+			git.branchDelete()
+					.setBranchNames(localBranchName)
+					.setForce(true)
+					.call();
+		} catch (GitAPIException e) {
+			throw new GitException(e);
+		}
 	}
 
 	@Override
-	public void deleteBranch(String remoteBranchName, String remoteName, boolean force, String authenticationToken) throws GitAPIException {
+	public void deleteBranch(String remoteBranchName, String remoteName, boolean force, String authenticationToken) throws GitException {
 		LOG.debug("Deleting branch {}/{}.", remoteName, remoteBranchName);
 
 		internalPushGitBranch(
@@ -118,22 +130,31 @@ public class GitActionsImpl implements GitActions {
 				authenticationToken);
 	}
 
-	private void internalPushGitBranch(String localBranchName, String remoteBranchName, String remoteName, boolean force, String authenticationToken) throws GitAPIException {
-		git.push()
-				.setRefSpecs(new RefSpec(String.format("%s:refs/heads/%s", localBranchName, remoteBranchName)))
-				.setRemote(remoteName)
-				.setCredentialsProvider(new UsernamePasswordCredentialsProvider(authenticationToken, ""))
-				.setForce(force)
-				.call()
-				.forEach(pushResult -> LOG.debug(pushResult.getRemoteUpdates().toString()));
+	private void internalPushGitBranch(String localBranchName, String remoteBranchName, String remoteName, boolean force, String authenticationToken) throws GitException {
+		try {
+			git.push()
+					.setRefSpecs(new RefSpec(String.format("%s:refs/heads/%s", localBranchName, remoteBranchName)))
+					.setRemote(remoteName)
+					.setCredentialsProvider(new UsernamePasswordCredentialsProvider(authenticationToken, ""))
+					.setForce(force)
+					.call()
+					.forEach(pushResult -> LOG.debug(pushResult.getRemoteUpdates().toString()));
+		} catch (GitAPIException e) {
+			throw new GitException(e);
+		}
 	}
 
 	@Override
-	public String getHeadCommitSHA(String localBranchName) throws IOException, GitAPIException {
-		ObjectId resolve = git.getRepository().resolve(localBranchName);
-		Iterable<RevCommit> call = git.log()
-				.add(resolve)
-				.call();
+	public String getHeadCommitSHA(String localBranchName) throws GitException {
+		Iterable<RevCommit> call;
+		try {
+			ObjectId resolve = git.getRepository().resolve(localBranchName);
+			call = git.log()
+					.add(resolve)
+					.call();
+		} catch (IOException | GitAPIException e) {
+			throw new GitException(e);
+		}
 
 		for (RevCommit revCommit : call) {
 			return revCommit.getName();

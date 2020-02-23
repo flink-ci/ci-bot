@@ -17,22 +17,18 @@
 
 package com.ververica.git;
 
-import org.eclipse.jgit.api.errors.GitAPIException;
-
-import java.io.IOException;
-
 public interface GitActions extends AutoCloseable {
-	void addRemote(String repositoryUrl, String remoteName) throws GitAPIException;
+	void addRemote(String repositoryUrl, String remoteName) throws GitException;
 
-	void fetchBranch(String remoteBranchName, String remoteName, boolean fetchPrBranch) throws GitAPIException;
+	void fetchBranch(String remoteBranchName, String remoteName, boolean fetchPrBranch) throws GitException;
 
-	void pushBranch(String localBranchName, String remoteBranchName, String remoteName, boolean force, String authenticationToken) throws GitAPIException;
+	void pushBranch(String localBranchName, String remoteBranchName, String remoteName, boolean force, String authenticationToken) throws GitException;
 
-	void deleteBranch(String localBranchName, boolean force) throws GitAPIException;
+	void deleteBranch(String localBranchName, boolean force) throws GitException;
 
-	void deleteBranch(String remoteBranchName, String remoteName, boolean force, String authenticationToken) throws GitAPIException;
+	void deleteBranch(String remoteBranchName, String remoteName, boolean force, String authenticationToken) throws GitException;
 
-	String getHeadCommitSHA(String localBranchName) throws IOException, GitAPIException;
+	String getHeadCommitSHA(String localBranchName) throws GitException;
 
 	void close();
 }

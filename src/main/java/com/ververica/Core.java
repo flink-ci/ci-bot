@@ -25,6 +25,7 @@ import com.google.common.cache.CacheBuilder;
 import com.ververica.ci.CiActionsContainer;
 import com.ververica.ci.CiProvider;
 import com.ververica.git.GitActions;
+import com.ververica.git.GitException;
 import com.ververica.github.GitHubActions;
 import com.ververica.github.GitHubCheckerStatus;
 import com.ververica.github.GitHubComment;
@@ -120,7 +121,7 @@ public class Core implements AutoCloseable {
 		setupGit(gitActions, observedRepository, ciRepository);
 	}
 
-	private static void setupGit(GitActions gitActions, String observedRepository, String ciRepository) throws Exception {
+	private static void setupGit(GitActions gitActions, String observedRepository, String ciRepository) throws GitException {
 		gitActions.addRemote(getGitHubURL(observedRepository), REMOTE_NAME_OBSERVED_REPOSITORY);
 		gitActions.addRemote(getGitHubURL(ciRepository), REMOTE_NAME_CI_REPOSITORY);
 
@@ -176,7 +177,7 @@ public class Core implements AutoCloseable {
 		return gitHubActions.isPullRequestClosed(observedRepository, pullRequestID);
 	}
 
-	public void deleteCiBranch(Build finishedBuild) throws Exception {
+	public void deleteCiBranch(Build finishedBuild) throws GitException {
 		String ciBranchName = getCiBranchName(finishedBuild.pullRequestID, finishedBuild.commitHash);
 		if (pendingBranchDeletions.getIfPresent(ciBranchName) != null) {
 			LOG.debug("Ignoring deletion of {} due to being cached.", ciBranchName);
@@ -348,7 +349,7 @@ public class Core implements AutoCloseable {
 		}
 	}
 
-	public void mirrorPullRequest(int pullRequestID) throws Exception {
+	public void mirrorPullRequest(int pullRequestID) throws GitException {
 		if (pendingMirrors.getIfPresent(pullRequestID) != null) {
 			LOG.debug("Ignoring mirroring for {} due to being cached.", formatPullRequestID(pullRequestID));
 			return;
