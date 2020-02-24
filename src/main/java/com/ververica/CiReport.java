@@ -13,7 +13,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumSet;
@@ -32,6 +36,9 @@ import static com.ververica.github.GitHubCheckerStatus.State.PENDING;
 public class CiReport {
 
 	private static final Logger LOG = LoggerFactory.getLogger(CiReport.class);
+
+	private static final Path COMMIT_BLACK_LIST_PATH = Paths.get("commit_blacklist.txt");
+	private static Collection<String> commitBlackList = Collections.emptyList();
 
 	@Deprecated
 	private static final String REGEX_GROUP_COMMIT_HASH = "CommitHash";
@@ -116,6 +123,8 @@ public class CiReport {
 	}
 
 	public static CiReport fromComment(int pullRequestID, String comment, CiActionsLookup ciActionsLookup) {
+		loadCommitBlackList();
+
 		final Map<String, Build> builds = new LinkedHashMap<>();
 
 		final Matcher reportMatcher = REGEX_PATTERN_CI_REPORT.matcher(comment);
@@ -154,7 +163,9 @@ public class CiReport {
 				}
 			}
 
-			metaData.getMetaDataEntries().forEach(metaDataEntry -> {
+			metaData.getMetaDataEntries().stream()
+					.filter(metaDataEntry -> !commitBlackList.contains(metaDataEntry.hash))
+					.forEach(metaDataEntry -> {
 				final String commitHash = metaDataEntry.getHash();
 				final GitHubCheckerStatus.State state = metaDataEntry.getStatus();
 				final String url = metaDataEntry.url;
@@ -233,6 +244,16 @@ public class CiReport {
 
 	public int getPullRequestID() {
 		return pullRequestID;
+	}
+
+	private static void loadCommitBlackList() {
+		if (Files.exists(COMMIT_BLACK_LIST_PATH)) {
+			try {
+				commitBlackList = Files.readAllLines(COMMIT_BLACK_LIST_PATH);
+			} catch (IOException e) {
+				LOG.warn("Could not read commit blacklist.", e);
+			}
+		}
 	}
 
 	@Override
