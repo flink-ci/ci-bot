@@ -111,6 +111,10 @@ public class GithubActionsImpl implements GitHubActions {
 			try {
 				final ObjectMapper objectMapper = new ObjectMapper();
 				final JsonNode jsonNode = objectMapper.readTree(rawJson);
+				if (jsonNode == null || jsonNode.get("check_runs") == null) {
+					LOG.warn("Could not retrieve checker for commit {}.", commitHash);
+					return Collections.emptyList();
+				}
 				final Iterator<JsonNode> checkJson = jsonNode.get("check_runs").iterator();
 
 				final Map<String, GitHubCheckerStatus> checksByUrl = new HashMap<>();
