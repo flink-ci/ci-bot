@@ -24,7 +24,10 @@ import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.lib.TextProgressMonitor;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
+import org.eclipse.jgit.transport.PushResult;
 import org.eclipse.jgit.transport.RefSpec;
+import org.eclipse.jgit.transport.RemoteRefUpdate;
+import org.eclipse.jgit.transport.RemoteRefUpdate.Status;
 import org.eclipse.jgit.transport.URIish;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.slf4j.Logger;
@@ -132,13 +135,40 @@ public class GitActionsImpl implements GitActions {
 
 	private void internalPushGitBranch(String localBranchName, String remoteBranchName, String remoteName, boolean force, String authenticationToken) throws GitException {
 		try {
-			git.push()
+			Iterable<PushResult> pushResults = git.push()
 					.setRefSpecs(new RefSpec(String.format("%s:refs/heads/%s", localBranchName, remoteBranchName)))
 					.setRemote(remoteName)
 					.setCredentialsProvider(new UsernamePasswordCredentialsProvider(authenticationToken, ""))
 					.setForce(force)
-					.call()
-					.forEach(pushResult -> LOG.debug(pushResult.getRemoteUpdates().toString()));
+					.call();
+			for (PushResult pushResult : pushResults) {
+				LOG.debug(pushResult.getRemoteUpdates().toString());
+				for (final RemoteRefUpdate rru : pushResult.getRemoteUpdates()) {
+					switch (rru.getStatus()) {
+						case OK:
+						case UP_TO_DATE: // indicates duplicate push, which can happen due to eventual consistency
+						case NON_EXISTING: // indicates duplicate delete, which can happen due to eventual consistency
+							continue;
+						case REJECTED_NODELETE:
+							// branch could not be deleted
+						case REJECTED_NONFASTFORWARD:
+							// remote has diverged from local branch
+							// should never occur when pushing a new branch
+						case REJECTED_REMOTE_CHANGED:
+							// Remote ref update was rejected, because old object id on remote
+							// should never occur when pushing a new branch
+						case REJECTED_OTHER_REASON:
+							throw new GitException(
+									new RuntimeException(
+											String.format(
+													"Error while pushing branch %s to %s/%s: %s",
+													localBranchName,
+													remoteBranchName,
+													remoteName,
+													rru.getMessage())));
+					}
+				}
+			}
 		} catch (GitAPIException e) {
 			throw new GitException(e);
 		}
