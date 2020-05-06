@@ -186,6 +186,9 @@ public class CiBot implements Runnable, AutoCloseable {
 				return;
 			}
 
+			// retry mirroring for builds with an unknown state, in case something went wrong during the push/CI trigger
+			ciReport.getUnknownBuilds().forEach(build -> core.mirrorPullRequest(build.pullRequestID));
+
 			ciReport.getRequiredBuilds()
 					.peek(OneShot.prime(any -> {
 						LOG.info("Canceling pending builds for PullRequest {} since a new build was triggered.", formatPullRequestID(pullRequestID));

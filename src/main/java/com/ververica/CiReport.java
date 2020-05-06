@@ -32,6 +32,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static com.ververica.github.GitHubCheckerStatus.State.PENDING;
+import static com.ververica.github.GitHubCheckerStatus.State.UNKNOWN;
 
 public class CiReport {
 
@@ -223,6 +224,11 @@ public class CiReport {
 	public Stream<Build> getRequiredBuilds() {
 		return getBuilds().filter(build -> !build.status.isPresent());
 	}
+
+	public Stream<Build> getUnknownBuilds() {
+		return filterByStates(GitHubCheckerStatus.State.UNKNOWN);
+	}
+
 	public Stream<Build> getPendingBuilds() {
 		return filterByStates(PENDING);
 	}
