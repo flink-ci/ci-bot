@@ -73,6 +73,8 @@ public class AzureActionsImpl implements CiActions {
 
 	@Override
 	public Optional<String> runBuild(String detailsUrl, String branch, List<String> arguments) {
+		LOG.debug("Triggering build for branch {}.", branch);
+
 		final String projectSlug = extractProjectUrl(detailsUrl);
 		final String args = arguments.size() == 0
 						? ""
