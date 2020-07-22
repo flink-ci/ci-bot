@@ -132,9 +132,7 @@ public class GithubActionsImpl implements GitHubActions {
 					final GHStatus status = GHStatus.valueOf(statusNode.asText().toUpperCase());
 
 					final JsonNode conclusionNode = next.get("conclusion");
-					final Optional<GHConclusion> conclusion = conclusionNode.isNull()
-							? Optional.empty()
-							: Optional.of(GHConclusion.valueOf(conclusionNode.asText().toUpperCase()));
+					final Optional<GHConclusion> conclusion = parseConclusion(conclusionNode);
 
 					final String appSlug = next.get("app").get("slug").asText();
 					final Optional<CiActions> ciActionsOptional = ciActionsLookup.getActionsForString(appSlug);
@@ -277,6 +275,21 @@ public class GithubActionsImpl implements GitHubActions {
 		} catch (Exception e) {
 			LOG.debug("Error while shutting down cache.", e);
 		}
+	}
+
+	private static Optional<GHConclusion> parseConclusion(JsonNode node) {
+		if (node == null) {
+			return Optional.empty();
+		}
+
+		String rawConclusion = node.asText().toUpperCase();
+		try {
+			return Optional.of(GHConclusion.valueOf(rawConclusion));
+		} catch (IllegalArgumentException iae) {
+			LOG.error("Encountered unknown conclusion {}.", rawConclusion);
+			return Optional.of(GHConclusion.FAILURE);
+		}
+
 	}
 
 	private enum GHConclusion {
