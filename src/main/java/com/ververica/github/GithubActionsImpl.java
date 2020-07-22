@@ -283,6 +283,7 @@ public class GithubActionsImpl implements GitHubActions {
 		SUCCESS,
 		FAILURE,
 		NEUTRAL,
+		STALE,
 		CANCELLED,
 		TIMED_OUT,
 		ACTION_REQUIRED
