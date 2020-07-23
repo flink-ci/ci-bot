@@ -29,6 +29,7 @@ import com.ververica.git.GitException;
 import com.ververica.github.GitHubCheckerStatus;
 import com.ververica.github.GithubActionsImpl;
 import com.ververica.utils.ConsumerWithException;
+import com.ververica.utils.FunctionWithException;
 import com.ververica.utils.RevisionInformation;
 import org.apache.commons.io.FileUtils;
 import org.eclipse.jgit.api.errors.TransportException;
@@ -175,82 +176,86 @@ public class CiBot implements Runnable, AutoCloseable {
 	}
 
 	private void tick(Date lastUpdateTime) throws Exception {
-		final ObservedState observedRepositoryState = core.fetchGithubState(lastUpdateTime);
+		core.getPullRequests(lastUpdateTime)
+				.map(FunctionWithException.wrap(
+						core::processPullRequest,
+						(r, e) -> LOG.error("Error while processing pull request {}.", formatPullRequestID(r.getID()), e)))
+				.filter(Optional::isPresent)
+				.map(Optional::get)
+				.forEach(ConsumerWithException.wrap(
+						this::processCiReport,
+						(r, e) -> LOG.error("Error while processing pull request {}.", formatPullRequestID(r.getPullRequestID()), e)));
+	}
 
-		final ConsumerWithException<CiReport, Exception> pullRequestProcessor = ciReport -> {
-			final int pullRequestID = ciReport.getPullRequestID();
+	private void processCiReport(CiReport ciReport) throws Exception {
+		final int pullRequestID = ciReport.getPullRequestID();
 
-			if (core.isPullRequestClosed(pullRequestID)) {
-				LOG.info("PullRequest {} was closed; canceling builds and deleting branches.", formatPullRequestID(pullRequestID));
-				ciReport.getPendingBuilds().forEach(core::cancelBuild);
-				ciReport.getFinishedBuilds().forEach(core::deleteCiBranch);
-				return;
+		if (core.isPullRequestClosed(pullRequestID)) {
+			LOG.info("PullRequest {} was closed; canceling builds and deleting branches.", formatPullRequestID(pullRequestID));
+			ciReport.getPendingBuilds().forEach(core::cancelBuild);
+			ciReport.getFinishedBuilds().forEach(core::deleteCiBranch);
+			return;
+		}
+
+		// retry mirroring for builds with an unknown state, in case something went wrong during the push/CI trigger
+		ciReport.getUnknownBuilds().forEach(build -> core.mirrorPullRequest(build.pullRequestID));
+
+		Map<Trigger.Type, List<Build>> builds = ciReport.getRequiredBuilds().collect(Collectors.groupingBy(build -> build.trigger.getType()));
+		List<Build> pushBuilds = builds.getOrDefault(Trigger.Type.PUSH, Collections.emptyList());
+		List<Build> manualBuilds = builds.getOrDefault(Trigger.Type.MANUAL, Collections.emptyList());
+
+		if (!pushBuilds.isEmpty() || !manualBuilds.isEmpty()) {
+			LOG.info("Canceling pending builds for PullRequest {} since a new build was triggered.", formatPullRequestID(pullRequestID));
+			// HACK: cancel all pending builds, on the assumption that they are all identical anyway
+			// this may not be necessarily true in the future
+			ciReport.getPendingBuilds().forEach(core::cancelBuild);
+		}
+
+		if (!pushBuilds.isEmpty()) {
+			// we've got a new commit, skip all triggered manual builds
+			manualBuilds.forEach(manualBuild -> ciReport.add(new Build(pullRequestID, "", Optional.of(new GitHubCheckerStatus(GitHubCheckerStatus.State.CANCELED, "TBD", CiProvider.Unknown)), manualBuild.trigger)));
+
+			// there should only ever by a single push build
+			Build latestPushBuild = pushBuilds.get(pushBuilds.size() - 1);
+			core.runBuild(ciReport, latestPushBuild)
+					.ifPresent(ciReport::add);
+		} else if (!manualBuilds.isEmpty()) {
+			// we are just re-running some previous build
+			// ideally make sure we don't trigger equivalent builds multiple times
+
+			// HACK: only process the last manual trigger, on the assumption that they are all identical anyway
+			// this may not be necessarily true in the future
+			for (int x = 0; x < manualBuilds.size() - 1; x++) {
+				Build manualBuild = manualBuilds.get(x);
+				ciReport.add(new Build(pullRequestID, "0000", Optional.of(new GitHubCheckerStatus(GitHubCheckerStatus.State.CANCELED, "TBD", CiProvider.Unknown)), manualBuild.trigger));
 			}
 
-			// retry mirroring for builds with an unknown state, in case something went wrong during the push/CI trigger
-			ciReport.getUnknownBuilds().forEach(build -> core.mirrorPullRequest(build.pullRequestID));
+			Build latestManualBuild = manualBuilds.get(manualBuilds.size() - 1);
+			core.runBuild(ciReport, latestManualBuild)
+					.ifPresent(ciReport::add);
+		}
 
-			Map<Trigger.Type, List<Build>> builds = ciReport.getRequiredBuilds().collect(Collectors.groupingBy(build -> build.trigger.getType()));
-			List<Build> pushBuilds = builds.getOrDefault(Trigger.Type.PUSH, Collections.emptyList());
-			List<Build> manualBuilds = builds.getOrDefault(Trigger.Type.MANUAL, Collections.emptyList());
+		final List<Build> finishedBuilds = ciReport.getFinishedBuilds().collect(Collectors.toList());
+		final int numFinishedBuilds = finishedBuilds.size();
+		if (numFinishedBuilds > 0) {
+			final String lastHash = finishedBuilds.get(numFinishedBuilds - 1).commitHash;
 
-			if (!pushBuilds.isEmpty() || !manualBuilds.isEmpty()) {
-				LOG.info("Canceling pending builds for PullRequest {} since a new build was triggered.", formatPullRequestID(pullRequestID));
-				// HACK: cancel all pending builds, on the assumption that they are all identical anyway
-				// this may not be necessarily true in the future
-				ciReport.getPendingBuilds().forEach(core::cancelBuild);
+			final List<Build> oldBuilds = finishedBuilds.stream().filter(build -> !build.commitHash.equals(lastHash)).collect(Collectors.toList());
+			if (!oldBuilds.isEmpty()) {
+				LOG.info("Deleting {} unnecessary branches for PullRequest {}, since newer commits are present. Retaining branches for commit {}.",
+						oldBuilds.size(),
+						formatPullRequestID(pullRequestID),
+						lastHash);
+
+				oldBuilds.stream()
+						.peek(core::deleteCiBranch)
+						.map(Build::asDeleted)
+						.forEach(ciReport::add);
 			}
+		}
 
-			if (!pushBuilds.isEmpty()) {
-				// we've got a new commit, skip all triggered manual builds
-				manualBuilds.forEach(manualBuild -> ciReport.add(new Build(pullRequestID, "", Optional.of(new GitHubCheckerStatus(GitHubCheckerStatus.State.CANCELED, "TBD", CiProvider.Unknown)), manualBuild.trigger)));
-
-				// there should only ever by a single push build
-				Build latestPushBuild = pushBuilds.get(pushBuilds.size() - 1);
-				core.runBuild(ciReport, latestPushBuild)
-						.ifPresent(ciReport::add);
-			} else if (!manualBuilds.isEmpty()) {
-				// we are just re-running some previous build
-				// ideally make sure we don't trigger equivalent builds multiple times
-
-				// HACK: only process the last manual trigger, on the assumption that they are all identical anyway
-				// this may not be necessarily true in the future
-				for (int x = 0; x < manualBuilds.size() - 1; x++) {
-					Build manualBuild = manualBuilds.get(x);
-					ciReport.add(new Build(pullRequestID, "0000", Optional.of(new GitHubCheckerStatus(GitHubCheckerStatus.State.CANCELED, "TBD", CiProvider.Unknown)), manualBuild.trigger));
-				}
-
-				Build latestManualBuild = manualBuilds.get(manualBuilds.size() - 1);
-				core.runBuild(ciReport, latestManualBuild)
-						.ifPresent(ciReport::add);
-			}
-
-			final List<Build> finishedBuilds = ciReport.getFinishedBuilds().collect(Collectors.toList());
-			final int numFinishedBuilds = finishedBuilds.size();
-			if (numFinishedBuilds > 0) {
-				final String lastHash = finishedBuilds.get(numFinishedBuilds - 1).commitHash;
-
-				final List<Build> oldBuilds = finishedBuilds.stream().filter(build -> !build.commitHash.equals(lastHash)).collect(Collectors.toList());
-				if (!oldBuilds.isEmpty()) {
-					LOG.info("Deleting {} unnecessary branches for PullRequest {}, since newer commits are present. Retaining branches for commit {}.",
-							oldBuilds.size(),
-							formatPullRequestID(pullRequestID),
-							lastHash);
-
-					oldBuilds.stream()
-							.peek(core::deleteCiBranch)
-							.map(Build::asDeleted)
-							.forEach(ciReport::add);
-				}
-			}
-
-			if (ciReport.getBuilds().count() > 0) {
-				core.updateCiReport(ciReport);
-			}
-		};
-
-		observedRepositoryState.getCiReports().forEach(ConsumerWithException.wrap(
-				pullRequestProcessor,
-				(r, e) -> LOG.error("Error while processing pull request {}.", formatPullRequestID(r.getPullRequestID()), e)));
+		if (ciReport.getBuilds().count() > 0) {
+			core.updateCiReport(ciReport);
+		}
 	}
 }

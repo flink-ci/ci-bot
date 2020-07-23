@@ -193,7 +193,7 @@ public class Core implements AutoCloseable {
 				githubToken);
 	}
 
-	public ObservedState fetchGithubState(Date lastUpdatedAtCutoff) throws IOException {
+	public Stream<GithubPullRequest> getPullRequests(Date lastUpdatedAtCutoff) throws IOException {
 		LOG.info("Retrieving observed repository state ({}).", observedRepository);
 
 		Iterable<GithubPullRequest> recentlyUpdatedOpenPullRequests = gitHubActions.getRecentlyUpdatedOpenPullRequests(observedRepository, lastUpdatedAtCutoff);
@@ -209,59 +209,58 @@ public class Core implements AutoCloseable {
 				.filter(pr -> !pullRequestsToProcessByID.containsKey(pr.getID()))
 				.forEach(pr -> pullRequestsToProcessByID.put(pr.getID(), pr));
 
-		final List<CiReport> ciReports = new ArrayList<>();
-		for (GithubPullRequest pullRequest : pullRequestsToProcessByID.values()) {
-			LOG.debug("Processing PR {}@{}.", formatPullRequestID(pullRequest.getID()), pullRequest.getHeadCommitHash());
-			final int pullRequestID = pullRequest.getID();
-			final String headCommitHash = pullRequest.getHeadCommitHash();
-			final Collection<String> reportedCommitHashes = new ArrayList<>();
+		return pullRequestsToProcessByID.values().stream();
+	}
 
-			Optional<GitHubComment> ciReportComment = getCiReportComment(pullRequestID);
-			final CiReport ciReport;
-			if (ciReportComment.isPresent()) {
-				LOG.debug("CiReport comment found.");
-				ciReport = CiReport.fromComment(pullRequestID, ciReportComment.get().getCommentText(), ciActions);
-				ciReport.getBuilds().map(build -> build.commitHash).forEach(reportedCommitHashes::add);
+	public CiReport processPullRequest(GithubPullRequest pullRequest) throws IOException {
+		LOG.debug("Processing PR {}@{}.", formatPullRequestID(pullRequest.getID()), pullRequest.getHeadCommitHash());
+		final int pullRequestID = pullRequest.getID();
+		final String headCommitHash = pullRequest.getHeadCommitHash();
+		final Collection<String> reportedCommitHashes = new ArrayList<>();
 
-				final Collection<Build> buildsToAdd = new ArrayList<>();
-				ciReport.getBuilds()
-						.filter(build -> build.status.isPresent())
-						.filter(build -> build.status.get().getState() == GitHubCheckerStatus.State.PENDING || build.status.get().getState() == GitHubCheckerStatus.State.UNKNOWN)
-						.forEach(build -> {
-							String commitHash = build.commitHash;
+		Optional<GitHubComment> ciReportComment = getCiReportComment(pullRequestID);
+		final CiReport ciReport;
+		if (ciReportComment.isPresent()) {
+			LOG.debug("CiReport comment found.");
+			ciReport = CiReport.fromComment(pullRequestID, ciReportComment.get().getCommentText(), ciActions);
+			ciReport.getBuilds().map(build -> build.commitHash).forEach(reportedCommitHashes::add);
 
-							LOG.debug("Checking commit state for {}.", commitHash);
-							Iterable<GitHubCheckerStatus> commitState = gitHubActions.getCommitState(ciRepository, commitHash, githubCheckerNamePattern);
-							StreamSupport.stream(commitState.spliterator(), false)
-									.filter(status -> status.getCiProvider() != CiProvider.Unknown)
-									.forEach(gitHubCheckerStatus -> {
-										if (gitHubCheckerStatus.getState() != build.status.get().getState()) {
-											buildsToAdd.add(new Build(build.pullRequestID, build.commitHash, Optional.of(gitHubCheckerStatus), build.trigger));
-										}
-									});
-						});
-				buildsToAdd.forEach(ciReport::add);
+			final Collection<Build> buildsToAdd = new ArrayList<>();
+			ciReport.getBuilds()
+					.filter(build -> build.status.isPresent())
+					.filter(build -> build.status.get().getState() == GitHubCheckerStatus.State.PENDING || build.status.get().getState() == GitHubCheckerStatus.State.UNKNOWN)
+					.forEach(build -> {
+						String commitHash = build.commitHash;
 
-				processManualTriggers(ciReport, pullRequestID)
-						.map(triggerComment -> new Build(
-								pullRequestID,
-								headCommitHash,
-								Optional.empty(),
-								new Trigger(Trigger.Type.MANUAL, String.valueOf(triggerComment.getCommentId()), triggerComment.getCommand())
-						))
-						.forEach(ciReport::add);
-			} else {
-				LOG.debug("No CIReport comment found.");
-				ciReport = CiReport.empty(pullRequestID);
-			}
+						LOG.debug("Checking commit state for {}.", commitHash);
+						Iterable<GitHubCheckerStatus> commitState = gitHubActions.getCommitState(ciRepository, commitHash, githubCheckerNamePattern);
+						StreamSupport.stream(commitState.spliterator(), false)
+								.filter(status -> status.getCiProvider() != CiProvider.Unknown)
+								.forEach(gitHubCheckerStatus -> {
+									if (gitHubCheckerStatus.getState() != build.status.get().getState()) {
+										buildsToAdd.add(new Build(build.pullRequestID, build.commitHash, Optional.of(gitHubCheckerStatus), build.trigger));
+									}
+								});
+					});
+			buildsToAdd.forEach(ciReport::add);
 
-			if (!reportedCommitHashes.contains(headCommitHash)) {
-				ciReport.add(new Build(pullRequestID, headCommitHash, Optional.empty(), new Trigger(Trigger.Type.PUSH, headCommitHash, null)));
-			}
-			ciReports.add(ciReport);
+			processManualTriggers(ciReport, pullRequestID)
+					.map(triggerComment -> new Build(
+							pullRequestID,
+							headCommitHash,
+							Optional.empty(),
+							new Trigger(Trigger.Type.MANUAL, String.valueOf(triggerComment.getCommentId()), triggerComment.getCommand())
+					))
+					.forEach(ciReport::add);
+		} else {
+			LOG.debug("No CIReport comment found.");
+			ciReport = CiReport.empty(pullRequestID);
 		}
 
-		return new ObservedState(ciReports);
+		if (!reportedCommitHashes.contains(headCommitHash)) {
+			ciReport.add(new Build(pullRequestID, headCommitHash, Optional.empty(), new Trigger(Trigger.Type.PUSH, headCommitHash, null)));
+		}
+		return ciReport;
 	}
 
 	private Stream<TriggerComment> processManualTriggers(CiReport ciReport, int pullRequestID) {
