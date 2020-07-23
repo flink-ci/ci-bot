@@ -299,7 +299,8 @@ public class GithubActionsImpl implements GitHubActions {
 		STALE,
 		CANCELLED,
 		TIMED_OUT,
-		ACTION_REQUIRED
+		ACTION_REQUIRED,
+		NULL
 	}
 
 	private enum GHStatus {
