@@ -76,9 +76,16 @@ public class AzureActionsImpl implements CiActions {
 		LOG.debug("Triggering build for branch {}.", branch);
 
 		final String projectSlug = extractProjectUrl(detailsUrl);
+		final String buildId = extractBuildId(detailsUrl);
 		final String args = arguments.size() == 0
 						? ""
 						: "\"parameters\":\"{\\\"args\\\":\\\"" + String.join(" ", arguments) + "\\\"}\"";
+
+		Optional<Integer> definitionId = getDefinitionId(projectSlug, buildId);
+		if (!definitionId.isPresent()) {
+			LOG.error("Failed to trigger build; could not retrieve definition id.");
+			return Optional.empty();
+		}
 
 		Optional<String> response = submitRequest(
 				"https://dev.azure.com/" + projectSlug + "/_apis/build/builds",
@@ -86,7 +93,7 @@ public class AzureActionsImpl implements CiActions {
 				RequestBody.create(
 						MediaType.get("application/json"),
 						"{" +
-								"\"definition\": {\"id\": 1}," +
+								"\"definition\": {\"id\": " + definitionId.get() + "}," +
 								"\"sourceBranch\": \"" + branch + "\"," +
 								args +
 								"}"));
@@ -101,6 +108,19 @@ public class AzureActionsImpl implements CiActions {
 		}
 
 		return Optional.empty();
+	}
+
+	private Optional<Integer> getDefinitionId(String projectSlug, String buildId) {
+		return submitRequest("https://dev.azure.com/" + projectSlug + "/_apis/build/builds/" + buildId, "GET", null)
+				.flatMap(buildDetails -> {
+					try {
+						int definitionId = OBJECT_MAPPER.readTree(buildDetails).get("definition").get("id").asInt();
+						return Optional.of(definitionId);
+					} catch (IOException e) {
+						LOG.error("Failed to process response.", e);
+						return Optional.empty();
+					}
+				});
 	}
 
 	private Optional<String> submitRequest(String url, String method, RequestBody requestBody) {
