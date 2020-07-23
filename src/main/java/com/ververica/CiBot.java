@@ -29,7 +29,6 @@ import com.ververica.git.GitException;
 import com.ververica.github.GitHubCheckerStatus;
 import com.ververica.github.GithubActionsImpl;
 import com.ververica.utils.ConsumerWithException;
-import com.ververica.utils.OneShot;
 import com.ververica.utils.RevisionInformation;
 import org.apache.commons.io.FileUtils;
 import org.eclipse.jgit.api.errors.TransportException;
@@ -45,8 +44,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -189,15 +190,40 @@ public class CiBot implements Runnable, AutoCloseable {
 			// retry mirroring for builds with an unknown state, in case something went wrong during the push/CI trigger
 			ciReport.getUnknownBuilds().forEach(build -> core.mirrorPullRequest(build.pullRequestID));
 
-			ciReport.getRequiredBuilds()
-					.peek(OneShot.prime(any -> {
-						LOG.info("Canceling pending builds for PullRequest {} since a new build was triggered.", formatPullRequestID(pullRequestID));
-						ciReport.getPendingBuilds().forEach(core::cancelBuild);
-					}))
-					.forEach(build -> {
-						core.mirrorPullRequest(build.pullRequestID);
-						ciReport.add(new Build(build.pullRequestID, build.commitHash, Optional.of(new GitHubCheckerStatus(GitHubCheckerStatus.State.UNKNOWN, "TBD", CiProvider.Unknown)), build.trigger));
-					});
+			Map<Trigger.Type, List<Build>> builds = ciReport.getRequiredBuilds().collect(Collectors.groupingBy(build -> build.trigger.getType()));
+			List<Build> pushBuilds = builds.getOrDefault(Trigger.Type.PUSH, Collections.emptyList());
+			List<Build> manualBuilds = builds.getOrDefault(Trigger.Type.MANUAL, Collections.emptyList());
+
+			if (!pushBuilds.isEmpty() || !manualBuilds.isEmpty()) {
+				LOG.info("Canceling pending builds for PullRequest {} since a new build was triggered.", formatPullRequestID(pullRequestID));
+				// HACK: cancel all pending builds, on the assumption that they are all identical anyway
+				// this may not be necessarily true in the future
+				ciReport.getPendingBuilds().forEach(core::cancelBuild);
+			}
+
+			if (!pushBuilds.isEmpty()) {
+				// we've got a new commit, skip all triggered manual builds
+				manualBuilds.forEach(manualBuild -> ciReport.add(new Build(pullRequestID, "", Optional.of(new GitHubCheckerStatus(GitHubCheckerStatus.State.CANCELED, "TBD", CiProvider.Unknown)), manualBuild.trigger)));
+
+				// there should only ever by a single push build
+				Build latestPushBuild = pushBuilds.get(pushBuilds.size() - 1);
+				core.runBuild(ciReport, latestPushBuild)
+						.ifPresent(ciReport::add);
+			} else if (!manualBuilds.isEmpty()) {
+				// we are just re-running some previous build
+				// ideally make sure we don't trigger equivalent builds multiple times
+
+				// HACK: only process the last manual trigger, on the assumption that they are all identical anyway
+				// this may not be necessarily true in the future
+				for (int x = 0; x < manualBuilds.size() - 1; x++) {
+					Build manualBuild = manualBuilds.get(x);
+					ciReport.add(new Build(pullRequestID, "0000", Optional.of(new GitHubCheckerStatus(GitHubCheckerStatus.State.CANCELED, "TBD", CiProvider.Unknown)), manualBuild.trigger));
+				}
+
+				Build latestManualBuild = manualBuilds.get(manualBuilds.size() - 1);
+				core.runBuild(ciReport, latestManualBuild)
+						.ifPresent(ciReport::add);
+			}
 
 			final List<Build> finishedBuilds = ciReport.getFinishedBuilds().collect(Collectors.toList());
 			final int numFinishedBuilds = finishedBuilds.size();

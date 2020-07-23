@@ -1,13 +1,18 @@
 package com.ververica;
 
+import java.util.Optional;
+
 public class Trigger {
 
 	private final Type type;
 	private final String id;
 
-	public Trigger(Type type, String id) {
+	private final String command;
+
+	public Trigger(Type type, String id, String command) {
 		this.type = type;
 		this.id = id;
+		this.command = command;
 	}
 
 	public Type getType() {
@@ -16,6 +21,10 @@ public class Trigger {
 
 	public String getId() {
 		return id;
+	}
+
+	public Optional<String> getCommand() {
+		return Optional.ofNullable(command);
 	}
 
 	public enum Type {

@@ -32,7 +32,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static com.ververica.github.GitHubCheckerStatus.State.PENDING;
-import static com.ververica.github.GitHubCheckerStatus.State.UNKNOWN;
 
 public class CiReport {
 
@@ -192,7 +191,7 @@ public class CiReport {
 						pullRequestID,
 						commitHash,
 						Optional.of(gitHubCheckerStatus),
-						new Trigger(triggerType, triggerID)));
+						new Trigger(triggerType, triggerID, "unknown")));
 			});
 		}
 		return new CiReport(pullRequestID, builds);

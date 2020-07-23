@@ -242,14 +242,21 @@ public class Core implements AutoCloseable {
 						});
 				buildsToAdd.forEach(ciReport::add);
 
-				processManualTriggers(ciReport, pullRequestID);
+				processManualTriggers(ciReport, pullRequestID)
+						.map(triggerComment -> new Build(
+								pullRequestID,
+								headCommitHash,
+								Optional.empty(),
+								new Trigger(Trigger.Type.MANUAL, String.valueOf(triggerComment.getCommentId()), triggerComment.getCommand())
+						))
+						.forEach(ciReport::add);
 			} else {
 				LOG.debug("No CIReport comment found.");
 				ciReport = CiReport.empty(pullRequestID);
 			}
 
 			if (!reportedCommitHashes.contains(headCommitHash)) {
-				ciReport.add(new Build(pullRequestID, headCommitHash, Optional.empty(), new Trigger(Trigger.Type.PUSH, headCommitHash)));
+				ciReport.add(new Build(pullRequestID, headCommitHash, Optional.empty(), new Trigger(Trigger.Type.PUSH, headCommitHash, null)));
 			}
 			ciReports.add(ciReport);
 		}
@@ -257,13 +264,13 @@ public class Core implements AutoCloseable {
 		return new ObservedState(ciReports);
 	}
 
-	private void processManualTriggers(CiReport ciReport, int pullRequestID) {
+	private Stream<TriggerComment> processManualTriggers(CiReport ciReport, int pullRequestID) {
 		final Stream<GitHubComment> comments;
 		try {
 			comments = gitHubActions.getComments(observedRepository, pullRequestID, REGEX_PATTERN_COMMAND_MENTION);
 		} catch (IOException e) {
 			LOG.debug("Could not retrieve comments for pull request {}.", formatPullRequestID(pullRequestID), e);
-			return;
+			return Stream.empty();
 		}
 
 		Set<Long> processedComments = ciReport.getBuilds()
@@ -276,50 +283,73 @@ public class Core implements AutoCloseable {
 
 		LOG.debug("Processed comments: {}.", processedComments);
 
-		comments.filter(gitHubComment -> !CiReport.isCiReportComment(gitHubComment.getCommentText())).forEach(comment -> {
-			LOG.trace("Processing comment {}.", comment.getId());
-			if (processedComments.contains(comment.getId())) {
-				return;
-			}
-			if (pendingTriggers.getIfPresent(comment.getId()) != null) {
-				LOG.debug("Ignoring trigger {} due to being cached.", comment.getId());
-				return;
-			}
-			pendingTriggers.put(comment.getId(), true);
-
-			final Matcher matcher = REGEX_PATTERN_COMMAND_MENTION.matcher(comment.getCommentText());
-			if (matcher.find()) {
-				final String[] command = matcher.group(REGEX_GROUP_COMMAND).split(" ");
-
-				final AzureCommand azureCommand = new AzureCommand();
-
-				JCommander jCommander = new JCommander();
-				jCommander.addCommand(new TravisCommand());
-				jCommander.addCommand(azureCommand);
-
-				try {
-					jCommander.parse(command);
-				} catch (Exception e) {
-					LOG.warn("Invalid command ({}), ignoring.", command);
-					return;
-				}
-
-				switch (jCommander.getParsedCommand()) {
-					case AzureCommand.COMMAND_NAME:
-						runBuild(CiProvider.Azure, ciReport, comment, azureCommand.args);
-						break;
-					case TravisCommand.COMMAND_NAME:
-						runBuild(CiProvider.Travis, ciReport, comment, Collections.emptyList());
-						break;
-					default:
-						throw new RuntimeException("Unhandled valid command " + Arrays.toString(command) + " .");
-				}
-				pendingTriggers.put(comment.getId(), true);
-			}
-		});
+		return comments
+				.filter(gitHubComment -> !CiReport.isCiReportComment(gitHubComment.getCommentText()))
+				.peek(comment -> LOG.trace("Processing comment {}.", comment.getId()))
+				.filter(comment -> !processedComments.contains(comment.getId()))
+				.filter(comment -> {
+					if (pendingTriggers.getIfPresent(comment.getId()) != null) {
+						LOG.debug("Ignoring trigger {} due to being cached.", comment.getId());
+						return false;
+					}
+					return true;
+				})
+				.flatMap(comment -> {
+					final Matcher matcher = REGEX_PATTERN_COMMAND_MENTION.matcher(comment.getCommentText());
+					if (matcher.find()) {
+						return Stream.of(new TriggerComment(comment.getId(), matcher.group(REGEX_GROUP_COMMAND)));
+					}
+					return Stream.empty();
+				});
 	}
 
-	private void runBuild(CiProvider ciProvider, CiReport ciReport, GitHubComment comment, List<String> arguments) {
+	public Optional<Build> runBuild(CiReport ciReport, Build build) {
+		switch (build.trigger.getType()) {
+			case PUSH:
+				return runPushBuild(build);
+			case MANUAL:
+				return runManualBuild(build.trigger, ciReport);
+
+		}
+		return Optional.empty();
+	}
+
+	private Optional<Build> runPushBuild(Build build) {
+		mirrorPullRequest(build.pullRequestID);
+		return Optional.of(new Build(
+				build.pullRequestID,
+				build.commitHash,
+				Optional.of(new GitHubCheckerStatus(GitHubCheckerStatus.State.UNKNOWN, "TBD", CiProvider.Unknown)),
+				build.trigger));
+	}
+
+	private Optional<Build> runManualBuild(Trigger trigger, CiReport ciReport) {
+		final String[] command = trigger.getCommand().get().split(" ");
+
+		final AzureCommand azureCommand = new AzureCommand();
+
+		JCommander jCommander = new JCommander();
+		jCommander.addCommand(new TravisCommand());
+		jCommander.addCommand(azureCommand);
+
+		try {
+			jCommander.parse(command);
+		} catch (Exception e) {
+			LOG.warn("Invalid command ({}), ignoring.", command);
+			return Optional.empty();
+		}
+
+		switch (jCommander.getParsedCommand()) {
+			case AzureCommand.COMMAND_NAME:
+				return runManualBuild(CiProvider.Azure, ciReport, trigger, azureCommand.args);
+			case TravisCommand.COMMAND_NAME:
+				return runManualBuild(CiProvider.Travis, ciReport, trigger, Collections.emptyList());
+			default:
+				throw new RuntimeException("Unhandled valid command " + Arrays.toString(command) + " .");
+		}
+	}
+
+	private Optional<Build> runManualBuild(CiProvider ciProvider, CiReport ciReport, Trigger trigger, List<String> arguments) {
 		Optional<Build> lastBuildOptional = ciReport.getBuilds()
 				.filter(build -> build.status.map(s -> s.getCiProvider() == ciProvider).orElse(false))
 				.reduce((first, second) -> second);
@@ -331,22 +361,24 @@ public class Core implements AutoCloseable {
 				LOG.debug("Ignoring {} run command since no build was triggered yet.", ciProvider.getName());
 			} else {
 				GitHubCheckerStatus gitHubCheckerStatus = lastBuild.status.get();
-				Optional<String> newUrl = ciActions.getActionsForProvider(gitHubCheckerStatus.getCiProvider())
+
+				return ciActions.getActionsForProvider(gitHubCheckerStatus.getCiProvider())
 						.flatMap(ciAction -> ciAction.runBuild(
-						gitHubCheckerStatus.getDetailsUrl(),
-						getCiBranchName(lastBuild.pullRequestID, lastBuild.commitHash),
-						arguments
-				));
-				newUrl.ifPresent(url -> ciReport.add(new Build(
-						lastBuild.pullRequestID,
-						lastBuild.commitHash,
-						Optional.of(new GitHubCheckerStatus(
-								GitHubCheckerStatus.State.PENDING,
-								url,
-								gitHubCheckerStatus.getCiProvider())),
-						new Trigger(Trigger.Type.MANUAL, String.valueOf(comment.getId())))));
+								gitHubCheckerStatus.getDetailsUrl(),
+								getCiBranchName(lastBuild.pullRequestID, lastBuild.commitHash),
+								arguments
+						))
+						.map(url -> new Build(
+								lastBuild.pullRequestID,
+								lastBuild.commitHash,
+								Optional.of(new GitHubCheckerStatus(
+										GitHubCheckerStatus.State.PENDING,
+										url,
+										gitHubCheckerStatus.getCiProvider())),
+								trigger));
 			}
 		}
+		return Optional.empty();
 	}
 
 	public void mirrorPullRequest(int pullRequestID) throws GitException {
