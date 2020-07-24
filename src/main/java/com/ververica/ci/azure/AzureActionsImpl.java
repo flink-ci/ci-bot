@@ -34,9 +34,15 @@ import java.nio.file.Path;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class AzureActionsImpl implements CiActions {
 	private static final Logger LOG = LoggerFactory.getLogger(AzureActionsImpl.class);
+
+	private static final Pattern BUILD_ID_PATTERN = Pattern.compile(".*buildId=([0-9]+)&?.*");
+	private static final Pattern PROJECT_SLUG_PATTERN = Pattern.compile(".*dev.azure.com/(.*)/_build.*");
+	private static final Pattern NORMALIZED_URL_PATTERN = Pattern.compile("(.*buildId=[0-9]+).*");
 
 	private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -70,7 +76,7 @@ public class AzureActionsImpl implements CiActions {
 
 	@Override
 	public void cancelBuild(String detailsUrl) {
-		final String projectSlug = extractProjectUrl(detailsUrl);
+		final String projectSlug = extractProjectSlug(detailsUrl);
 		final String buildId = extractBuildId(detailsUrl);
 
 		submitRequest(
@@ -83,7 +89,7 @@ public class AzureActionsImpl implements CiActions {
 	public Optional<String> runBuild(String detailsUrl, String branch, List<String> arguments) {
 		LOG.debug("Triggering build for branch {}.", branch);
 
-		final String projectSlug = extractProjectUrl(detailsUrl);
+		final String projectSlug = extractProjectSlug(detailsUrl);
 		final String buildId = extractBuildId(detailsUrl);
 		final String args = arguments.size() == 0
 						? ""
@@ -162,57 +168,30 @@ public class AzureActionsImpl implements CiActions {
 
 	@Override
 	public String normalizeUrl(String detailsUrl) {
+		return internalNormalizeUrl(detailsUrl);
+	}
+
+	static String internalNormalizeUrl(String detailsUrl) {
+		return extractFromUrl(NORMALIZED_URL_PATTERN, detailsUrl, "Could not normalize url (" + detailsUrl + ").");
+	}
+
+	static String extractProjectSlug(String detailsUrl) {
+		return extractFromUrl(PROJECT_SLUG_PATTERN, detailsUrl, "Could not extract project slug from url (" + detailsUrl + ").");
+	}
+
+	static String extractBuildId(String detailsUrl) {
+		return extractFromUrl(BUILD_ID_PATTERN, detailsUrl, "Could not extract build ID from url (" + detailsUrl + ").");
+	}
+
+	private static String extractFromUrl(Pattern pattern, String detailsUrl, String errorMessage) {
 		// example urls:
 		// https://dev.azure.com/chesnay/0f3463e8-185e-423b-aa88-6cc39182caea/_build/results?buildId=1
 		// https://dev.azure.com/chesnay/0f3463e8-185e-423b-aa88-6cc39182caea/_build/results?buildId=1&view=logs&jobId=c6e12662-7e76-5fac-6ded-4b654ce98c1b
-		final String prefix = "buildId=";
-
-		// https://dev.azure.com/chesnay/0f3463e8-185e-423b-aa88-6cc39182caea/_build/results?
-		final int prefixIndex = detailsUrl.indexOf(prefix);
-
-		// 1&view=logs&jobId=c6e12662-7e76-5fac-6ded-4b654ce98c1b
-		final String buildAndTail = detailsUrl.substring(prefixIndex + prefix.length());
-
-		final String tailPrefix = "&";
-		// 1&
-		final int tailIndex = buildAndTail.indexOf(tailPrefix);
-
-		if (tailIndex < 0) {
-			return detailsUrl;
+		Matcher matcher = pattern.matcher(detailsUrl);
+		if (matcher.find()) {
+			return matcher.group(1);
 		} else {
-			return detailsUrl.substring(0, prefixIndex + prefix.length() + tailIndex);
-		}
-	}
-
-	private static String extractProjectUrl(String detailsUrl) {
-		// example urls:
-		// https://dev.azure.com/chesnay/0f3463e8-185e-423b-aa88-6cc39182caea/_build/results?buildId=1
-		final String prefix = "dev.azure.com/";
-		final String suffix = "/_build";
-
-		return detailsUrl.substring(
-				detailsUrl.indexOf(prefix) + prefix.length(),
-				detailsUrl.indexOf(suffix)
-		);
-	}
-
-	private static String extractBuildId(String detailsUrl) {
-		// example urls:
-		// https://dev.azure.com/chesnay/0f3463e8-185e-423b-aa88-6cc39182caea/_build/results?buildId=1
-		// https://dev.azure.com/chesnay/0f3463e8-185e-423b-aa88-6cc39182caea/_build/results?buildId=1&view=logs&jobId=c6e12662-7e76-5fac-6ded-4b654ce98c1b
-		final String prefix = "buildId=";
-
-		final String buildAndTail = detailsUrl.substring(detailsUrl.indexOf(prefix) + prefix.length());
-
-		final String tailPrefix = "&";
-		final int tailIndex = buildAndTail.indexOf(tailPrefix);
-
-		if (tailIndex < 0) {
-			// 1
-			return buildAndTail;
-		} else {
-			// 1&view=logs&jobId=c6e12662-7e76-5fac-6ded-4b654ce98c1b
-			return buildAndTail.substring(0, tailIndex);
+			throw new IllegalArgumentException(errorMessage);
 		}
 	}
 }
