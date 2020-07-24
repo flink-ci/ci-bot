@@ -51,6 +51,14 @@ public class AzureActionsImpl implements CiActions {
 		okHttpClient = setupOkHttpClient(cache);
 	}
 
+	private static OkHttpClient setupOkHttpClient(Cache cache) {
+		LOG.info("Setting up OkHttp client with cache at {}.", cache.directory());
+
+		final OkHttpClient.Builder okHttpClient = new OkHttpClient.Builder();
+		okHttpClient.cache(cache);
+		return okHttpClient.build();
+	}
+
 	@Override
 	public void close() {
 		try {
@@ -174,14 +182,6 @@ public class AzureActionsImpl implements CiActions {
 		} else {
 			return detailsUrl.substring(0, prefixIndex + prefix.length() + tailIndex);
 		}
-	}
-
-	private static OkHttpClient setupOkHttpClient(Cache cache) {
-		LOG.info("Setting up OkHttp client with cache at {}.", cache.directory());
-
-		final OkHttpClient.Builder okHttpClient = new OkHttpClient.Builder();
-		okHttpClient.cache(cache);
-		return okHttpClient.build();
 	}
 
 	private static String extractProjectUrl(String detailsUrl) {
