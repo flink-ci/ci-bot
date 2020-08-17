@@ -17,9 +17,11 @@
 
 package com.ververica.ci.azure;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ververica.ci.CiActions;
 import com.ververica.ci.CiProvider;
+import com.ververica.github.GitHubCheckerStatus;
 import okhttp3.Cache;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -34,6 +36,7 @@ import java.nio.file.Path;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -140,6 +143,93 @@ public class AzureActionsImpl implements CiActions {
 		}
 
 		return Optional.empty();
+	}
+
+	@Override
+	public boolean supportsDirectBuildStatusRetrieval() {
+		return true;
+	}
+
+	@Override
+	public Optional<GitHubCheckerStatus.State> getBuildStatus(String detailsUrl) {
+		final String projectSlug = extractProjectSlug(detailsUrl);
+		final String buildId = extractBuildId(detailsUrl);
+
+		return submitRequest("https://dev.azure.com/" + projectSlug + "/_apis/build/builds/" + buildId, "GET", null)
+				.flatMap(buildDetails -> {
+					try {
+						final JsonNode json = OBJECT_MAPPER.readTree(buildDetails);
+
+						final Optional<AzureBuildStatus> azureBuildStatus = getAzureBuildStatus(json);
+
+						if (!azureBuildStatus.isPresent()) {
+							return Optional.of(GitHubCheckerStatus.State.UNKNOWN);
+						}
+
+						switch (azureBuildStatus.get()) {
+							case COMPLETED:
+								final Optional<AzureBuildResult> azureBuildResult = getAzureBuildResult(json);
+								if (!azureBuildResult.isPresent()) {
+									// this shouldn't happen; use PENDING to ensure we try fetching the state again
+									return Optional.of(GitHubCheckerStatus.State.PENDING);
+								} else {
+									switch (azureBuildResult.get()) {
+										case PARTIALLYSUCCEEDED:
+										case FAILED:
+											return Optional.of(GitHubCheckerStatus.State.FAILURE);
+										case CANCELED:
+											return Optional.of(GitHubCheckerStatus.State.CANCELED);
+										case SUCCEEDED:
+											return Optional.of(GitHubCheckerStatus.State.SUCCESS);
+									}
+								}
+							default:
+								return Optional.of(GitHubCheckerStatus.State.PENDING);
+						}
+					} catch (IOException e) {
+						LOG.error("Failed to process response.", e);
+						return Optional.empty();
+					}
+				});
+	}
+
+	private static Optional<AzureBuildStatus> getAzureBuildStatus(JsonNode json) {
+		return getEnum(AzureBuildStatus::valueOf, json, "status");
+	}
+
+	private static Optional<AzureBuildResult> getAzureBuildResult(JsonNode json) {
+		return getEnum(AzureBuildResult::valueOf, json, "result");
+	}
+
+	private static <X> Optional<X> getEnum(Function<String, X> fun, JsonNode json, String field) {
+		JsonNode rawField = json.get(field);
+
+		if (rawField == null) {
+			return Optional.empty();
+		}
+		try {
+			return Optional.of(fun.apply(rawField.asText().toUpperCase()));
+		} catch (IllegalArgumentException iae) {
+			return Optional.empty();
+		}
+	}
+
+	// based on https://docs.microsoft.com/en-us/rest/api/azure/devops/build/builds/queue?view=azure-devops-rest-6.0#buildstatus
+	private enum AzureBuildStatus {
+		NONE,
+		NOTSTARTED,
+		INPROGRESS,
+		CANCELLING,
+		COMPLETED,
+		POSTPONED
+	}
+
+	// based on https://docs.microsoft.com/en-us/rest/api/azure/devops/build/builds/queue?view=azure-devops-rest-6.0#buildresult
+	private enum AzureBuildResult {
+		CANCELED,
+		FAILED,
+		PARTIALLYSUCCEEDED,
+		SUCCEEDED
 	}
 
 	private Optional<Integer> getDefinitionId(String projectSlug, String buildId) {

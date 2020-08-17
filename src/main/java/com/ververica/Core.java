@@ -22,6 +22,7 @@ import com.beust.jcommander.Parameter;
 import com.beust.jcommander.Parameters;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import com.ververica.ci.CiActions;
 import com.ververica.ci.CiActionsContainer;
 import com.ververica.ci.CiProvider;
 import com.ververica.git.GitActions;
@@ -46,6 +47,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -233,14 +236,42 @@ public class Core implements AutoCloseable {
 						String commitHash = build.commitHash;
 
 						LOG.debug("Checking commit state for {}.", commitHash);
+
+						// CI services may override previous checker runs (e.g., in case of a manual build)
+						// make sure we also try to retrieve the state for the original details URL
+						final AtomicBoolean originalUrlWasProcessed = new AtomicBoolean(false);
+						final Consumer<GitHubCheckerStatus> checkerStatusProcessor = gitHubCheckerStatus -> {
+							if (gitHubCheckerStatus.getDetailsUrl().equals(build.status.get().getDetailsUrl())) {
+								originalUrlWasProcessed.set(true);
+							}
+
+							// try retrieving the state directly from the CiProvider, as they tend to be more accurate
+							final Optional<GitHubCheckerStatus> directlyRetrievedStatus = ciActions
+									.getActionsForProvider(gitHubCheckerStatus.getCiProvider())
+									.filter(CiActions::supportsDirectBuildStatusRetrieval)
+									.flatMap(ciActions -> ciActions.getBuildStatus(gitHubCheckerStatus.getDetailsUrl()))
+									.map(status -> new GitHubCheckerStatus(status, gitHubCheckerStatus.getDetailsUrl(), gitHubCheckerStatus.getCiProvider()));
+
+							directlyRetrievedStatus.ifPresent(status -> LOG.trace("Retrieved status {} for {} ({}@{}) from {}.", status.getState(), status.getDetailsUrl(), build.pullRequestID, build.commitHash, build.status.get().getCiProvider().getName()));
+
+							final GitHubCheckerStatus finalGitHubCheckerStatus = directlyRetrievedStatus.orElse(gitHubCheckerStatus);
+
+							if (finalGitHubCheckerStatus.getState() != build.status.get().getState()) {
+								LOG.trace("Updating state for {}@{} from {} to {}.", build.pullRequestID, build.commitHash, build.status.get().getState(), finalGitHubCheckerStatus.getState());
+								buildsToAdd.add(new Build(build.pullRequestID, build.commitHash, Optional.of(finalGitHubCheckerStatus), build.trigger));
+							} else {
+								LOG.trace("Unchanged state for {}@{} at {}.", build.pullRequestID, build.commitHash, finalGitHubCheckerStatus.getState());
+							}
+						};
+
 						Iterable<GitHubCheckerStatus> commitState = gitHubActions.getCommitState(ciRepository, commitHash, githubCheckerNamePattern);
 						StreamSupport.stream(commitState.spliterator(), false)
 								.filter(status -> status.getCiProvider() != CiProvider.Unknown)
-								.forEach(gitHubCheckerStatus -> {
-									if (gitHubCheckerStatus.getState() != build.status.get().getState()) {
-										buildsToAdd.add(new Build(build.pullRequestID, build.commitHash, Optional.of(gitHubCheckerStatus), build.trigger));
-									}
-								});
+								.forEach(checkerStatusProcessor);
+
+						if (!originalUrlWasProcessed.get()) {
+							checkerStatusProcessor.accept(build.status.get());
+						}
 					});
 			buildsToAdd.forEach(ciReport::add);
 
