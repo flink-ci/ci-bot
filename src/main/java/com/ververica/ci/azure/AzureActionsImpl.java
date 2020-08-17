@@ -46,32 +46,50 @@ public class AzureActionsImpl implements CiActions {
 
 	private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-	private final Cache cache;
 	private final OkHttpClient okHttpClient;
-	private final String pat64;
 
-	public AzureActionsImpl(Path temporaryDirectory, String authorizationToken) {
+	public static AzureActionsImpl create(Path temporaryDirectory, String authorizationToken) {
 		// dhjf4zurpriacwvp74vuxiavnm5xoprlqddalfyg5q7bat7buuka
-		pat64 = Base64.getEncoder().encodeToString((":" + authorizationToken).getBytes());
-		cache = new Cache(temporaryDirectory.toFile(), 4 * 1024 * 1024);
-		okHttpClient = setupOkHttpClient(cache);
+		final String pat64 = Base64.getEncoder().encodeToString((":" + authorizationToken).getBytes());
+		final Cache cache = new Cache(temporaryDirectory.toFile(), 4 * 1024 * 1024);
+		final OkHttpClient okHttpClient = setupOkHttpClient(cache, pat64);
+
+		return new AzureActionsImpl(okHttpClient);
 	}
 
-	private static OkHttpClient setupOkHttpClient(Cache cache) {
+	AzureActionsImpl(OkHttpClient okHttpClient) {
+		this.okHttpClient = okHttpClient;
+	}
+
+	private static OkHttpClient setupOkHttpClient(Cache cache, String pat64) {
 		LOG.info("Setting up OkHttp client with cache at {}.", cache.directory());
 
 		final OkHttpClient.Builder okHttpClient = new OkHttpClient.Builder();
 		okHttpClient.cache(cache);
+		okHttpClient.addInterceptor(chain -> {
+			Request original = chain.request();
+
+			Request request = original.newBuilder()
+					.header("Accept", "application/json;api-version=6.0-preview.5")
+					.header("Authorization", "Basic " + pat64)
+					.method(original.method(), original.body())
+					.build();
+
+			return chain.proceed(request);
+		});
 		return okHttpClient.build();
 	}
 
 	@Override
 	public void close() {
-		try {
-			cache.close();
-		} catch (Exception e) {
-			LOG.debug("Error while shutting down cache.", e);
-		}
+		Optional.ofNullable(okHttpClient.cache())
+				.ifPresent(cache -> {
+					try {
+						cache.close();
+					} catch (IOException e) {
+						LOG.debug("Error while shutting down cache.", e);
+					}
+				});
 	}
 
 	@Override
@@ -142,8 +160,6 @@ public class AzureActionsImpl implements CiActions {
 			try (Response response = okHttpClient.newCall(
 					new Request.Builder()
 							.url(url)
-							.header("Accept", "application/json;api-version=6.0-preview.5")
-							.header("Authorization", "Basic " + pat64)
 							.method(method, requestBody)
 							.build()
 			).execute()) {

@@ -94,7 +94,7 @@ public class CiBot implements Runnable, AutoCloseable {
 								: Stream.of(new TravisActionsImpl(LOCAL_BASE_PATH.resolve("travis"), arguments.travisToken)),
 						arguments.azureToken == null
 								? Stream.empty()
-								: Stream.of(new AzureActionsImpl(LOCAL_BASE_PATH.resolve("azure"), arguments.azureToken)))
+								: Stream.of(AzureActionsImpl.create(LOCAL_BASE_PATH.resolve("azure"), arguments.azureToken)))
 						.peek(ciAction -> LOG.info("Configured ci provider {}.", ciAction))
 						.toArray(CiActions[]::new);
 
