@@ -66,6 +66,7 @@ public class CiBot implements Runnable, AutoCloseable {
 	private static final Path LOCAL_BASE_PATH = Paths.get(System.getProperty("java.io.tmpdir"), "ci_bot");
 
 	private final Core core;
+	private final GitActionsImpl gitActions;
 	private final int pollingIntervalInSeconds;
 	private final int backlogHours;
 
@@ -107,24 +108,27 @@ public class CiBot implements Runnable, AutoCloseable {
 
 		final CiActionsContainer ciActionsContainer = new CiActionsContainer(ciActions);
 
+		final GitActionsImpl gitActions = new GitActionsImpl(LOCAL_BASE_PATH);
 		try (final CiBot ciBot = new CiBot(
 				new Core(
 						arguments.observedRepository,
 						arguments.ciRepository,
 						arguments.username,
 						arguments.githubToken,
-						new GitActionsImpl(LOCAL_BASE_PATH),
+						gitActions,
 						new GithubActionsImpl(ciActionsContainer, LOCAL_BASE_PATH.resolve("github"), arguments.githubToken),
 						ciActionsContainer,
 						arguments.checkerNamePattern),
+				gitActions,
 				arguments.pollingIntervalInSeconds,
 				arguments.backlogHours)) {
 			ciBot.run();
 		}
 	}
 
-	public CiBot(Core core, int pollingIntervalInSeconds, int backlogHours) {
+	public CiBot(Core core, GitActionsImpl gitActions, int pollingIntervalInSeconds, int backlogHours) {
 		this.core = core;
+		this.gitActions = gitActions;
 		this.pollingIntervalInSeconds = pollingIntervalInSeconds;
 		this.backlogHours = backlogHours;
 	}
@@ -185,6 +189,7 @@ public class CiBot implements Runnable, AutoCloseable {
 				.forEach(ConsumerWithException.wrap(
 						this::processCiReport,
 						(r, e) -> LOG.error("Error while processing pull request {}.", formatPullRequestID(r.getPullRequestID()), e)));
+		gitActions.cleanup();
 	}
 
 	private void processCiReport(CiReport ciReport) throws Exception {

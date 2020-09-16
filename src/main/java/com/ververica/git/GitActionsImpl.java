@@ -191,4 +191,12 @@ public class GitActionsImpl implements GitActions {
 		}
 		throw new IllegalStateException("No commits in branch " + localBranchName + '.');
 	}
+
+	@Override
+	public void cleanup() throws GitAPIException {
+		LOG.debug("Running gc.");
+		git.gc()
+				.setProgressMonitor(new TextProgressMonitor())
+				.call();
+	}
 }

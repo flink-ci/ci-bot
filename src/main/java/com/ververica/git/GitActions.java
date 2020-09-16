@@ -17,6 +17,8 @@
 
 package com.ververica.git;
 
+import org.eclipse.jgit.api.errors.GitAPIException;
+
 public interface GitActions extends AutoCloseable {
 	void addRemote(String repositoryUrl, String remoteName) throws GitException;
 
@@ -29,6 +31,8 @@ public interface GitActions extends AutoCloseable {
 	void deleteBranch(String remoteBranchName, String remoteName, boolean force, String authenticationToken) throws GitException;
 
 	String getHeadCommitSHA(String localBranchName) throws GitException;
+
+	void cleanup() throws GitAPIException;
 
 	void close();
 }
