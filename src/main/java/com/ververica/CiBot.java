@@ -108,21 +108,26 @@ public class CiBot implements Runnable, AutoCloseable {
 
 		final CiActionsContainer ciActionsContainer = new CiActionsContainer(ciActions);
 
-		final GitActionsImpl gitActions = new GitActionsImpl(LOCAL_BASE_PATH);
-		try (final CiBot ciBot = new CiBot(
-				new Core(
-						arguments.observedRepository,
-						arguments.ciRepository,
-						arguments.username,
-						arguments.githubToken,
-						gitActions,
-						new GithubActionsImpl(ciActionsContainer, LOCAL_BASE_PATH.resolve("github"), arguments.githubToken),
-						ciActionsContainer,
-						arguments.checkerNamePattern),
-				gitActions,
-				arguments.pollingIntervalInSeconds,
-				arguments.backlogHours)) {
-			ciBot.run();
+		while (true) {
+			final GitActionsImpl gitActions = new GitActionsImpl(LOCAL_BASE_PATH);
+			try (final CiBot ciBot = new CiBot(
+					new Core(
+							arguments.observedRepository,
+							arguments.ciRepository,
+							arguments.username,
+							arguments.githubToken,
+							gitActions,
+							new GithubActionsImpl(ciActionsContainer, LOCAL_BASE_PATH.resolve("github"), arguments.githubToken),
+							ciActionsContainer,
+							arguments.checkerNamePattern),
+					gitActions,
+					arguments.pollingIntervalInSeconds,
+					arguments.backlogHours)) {
+				ciBot.run();
+			} catch (Exception e) {
+				LOG.error("An exception crashed CiBot. Restarting in 5 minutes.", e);
+				Thread.sleep(1000 * 60 * 5);
+			}
 		}
 	}
 
