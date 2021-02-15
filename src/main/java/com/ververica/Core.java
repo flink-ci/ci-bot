@@ -359,7 +359,6 @@ public class Core implements AutoCloseable {
 		final AzureCommand azureCommand = new AzureCommand();
 
 		JCommander jCommander = new JCommander();
-		jCommander.addCommand(new TravisCommand());
 		jCommander.addCommand(azureCommand);
 
 		try {
@@ -372,8 +371,6 @@ public class Core implements AutoCloseable {
 		switch (jCommander.getParsedCommand()) {
 			case AzureCommand.COMMAND_NAME:
 				return runManualBuild(CiProvider.Azure, ciReport, trigger, azureCommand.args);
-			case TravisCommand.COMMAND_NAME:
-				return runManualBuild(CiProvider.Travis, ciReport, trigger, Collections.emptyList());
 			default:
 				throw new RuntimeException("Unhandled valid command " + Arrays.toString(command) + " .");
 		}
@@ -459,11 +456,6 @@ public class Core implements AutoCloseable {
 
 	private static String getGitHubURL(String repository) {
 		return "https://github.com/" + repository + ".git";
-	}
-
-	@Parameters(commandNames = TravisCommand.COMMAND_NAME)
-	private static final class TravisCommand {
-		static final String COMMAND_NAME = "travis";
 	}
 
 	@Parameters(commandNames = AzureCommand.COMMAND_NAME)

@@ -18,7 +18,6 @@
 package com.ververica.ci;
 
 public enum CiProvider {
-	Travis("Travis"),
 	Azure("Azure"),
 	Unknown("Unknown");
 

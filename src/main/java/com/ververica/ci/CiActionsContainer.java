@@ -39,9 +39,6 @@ public class CiActionsContainer implements Closeable, CiActionsLookup {
 	}
 
 	public Optional<CiActions> getActionsForString(String string) {
-		if (string.contains("travis-ci")) {
-			return getActionsForProvider(CiProvider.Travis);
-		}
 		if (string.contains("azure")) {
 			return getActionsForProvider(CiProvider.Azure);
 		}

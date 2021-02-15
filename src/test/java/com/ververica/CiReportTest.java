@@ -21,7 +21,7 @@ public class CiReportTest {
 	private static final String LEGACY_CI_REPORT = "" +
 			"<!--\n" +
 			"Meta data\n" +
-			"Hash:1e9a07e9ffa1d8ae02e8fa26e543d5be01eacfe3 Status:SUCCESS URL:https://travis-ci.com/flink-ci/flink/builds/123348301 TriggerType:PUSH TriggerID:1e9a07e9ffa1d8ae02e8fa26e543d5be01eacfe3\n" +
+			"Hash:1e9a07e9ffa1d8ae02e8fa26e543d5be01eacfe3 Status:SUCCESS URL:https://some-provider/builds/123348301 TriggerType:PUSH TriggerID:1e9a07e9ffa1d8ae02e8fa26e543d5be01eacfe3\n" +
 			"-->\n" +
 			"## CI report:\n" +
 			"\n";
@@ -30,8 +30,8 @@ public class CiReportTest {
 	private static final String LEGACY_CI_REPORT_WITH_MULTIPLE_BUILDS = "" +
 			"<!--\n" +
 			"Meta data\n" +
-			"Hash:1e9a07e9ffa1d8ae02e8fa26e543d5be01eacfe3 Status:SUCCESS URL:https://travis-ci.com/flink-ci/flink/builds/123348301 TriggerType:PUSH TriggerID:1e9a07e9ffa1d8ae02e8fa26e543d5be01eacfe3\n" +
-			"Hash:1e9a07e9ffa1d8ae02e8fa26e543d5be01eacfe3 Status:SUCCESS URL:https://travis-ci.com/flink-ci/flink/builds/123348302 TriggerType:MANUAL TriggerID:1\n" +
+			"Hash:1e9a07e9ffa1d8ae02e8fa26e543d5be01eacfe3 Status:SUCCESS URL:https://some-provider/builds/123348301 TriggerType:PUSH TriggerID:1e9a07e9ffa1d8ae02e8fa26e543d5be01eacfe3\n" +
+			"Hash:1e9a07e9ffa1d8ae02e8fa26e543d5be01eacfe3 Status:SUCCESS URL:https://some-provider/builds/123348302 TriggerType:MANUAL TriggerID:1\n" +
 			"-->\n" +
 			"## CI report:\n" +
 			"\n";
@@ -53,7 +53,7 @@ public class CiReportTest {
 			"  \"metaDataEntries\" : [ {\n" +
 			"    \"hash\" : \"dede21b50da7c596b8754860aa5e4025d67f4961\",\n" +
 			"    \"status\" : \"SUCCESS\",\n" +
-			"    \"url\" : \"https://travis-ci.com/flink-ci/flink/builds/1234\",\n" +
+			"    \"url\" : \"https://some-provider/builds/1234\",\n" +
 			"    \"triggerID\" : \"dede21b50da7c596b8754860aa5e4025d67f4961\",\n" +
 			"    \"triggerType\" : \"PUSH\"\n" +
 			"  }, {\n" +
@@ -100,7 +100,7 @@ public class CiReportTest {
 		{
 			final Build build = entriesByTrigger.get("dede21b50da7c596b8754860aa5e4025d67f4961");
 			Assert.assertEquals(GitHubCheckerStatus.State.SUCCESS, build.status.get().getState());
-			Assert.assertEquals("https://travis-ci.com/flink-ci/flink/builds/1234", build.status.get().getDetailsUrl());
+			Assert.assertEquals("https://some-provider/builds/1234", build.status.get().getDetailsUrl());
 			Assert.assertEquals("dede21b50da7c596b8754860aa5e4025d67f4961", build.trigger.getId());
 			Assert.assertEquals(Trigger.Type.PUSH, build.trigger.getType());
 		}

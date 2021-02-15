@@ -95,8 +95,6 @@ public class GithubActionsImpl implements GitHubActions {
 	/**
 	 * Retrieves the CI status for the given commit.
 	 *
-	 * <p>This internally retrieves the status via the Checks API, since the Commit Status API is not supported on
-	 * {@code travis-ci.com}.
 	 * Internally this uses a plain REST client, since the {@code github-api} does not support the
 	 * Checks API. (see https://github.com/kohsuke/github-api/issues/520)
 	 */

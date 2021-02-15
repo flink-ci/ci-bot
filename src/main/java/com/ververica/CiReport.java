@@ -68,7 +68,6 @@ public class CiReport {
 			"<summary>Bot commands</summary>\n" +
 			"  The @flinkbot bot supports the following commands:\n" +
 			"\n" +
-			" - `@flinkbot run travis` re-run the last Travis build\n" +
 			" - `@flinkbot run azure` re-run the last Azure build\n" +
 			"</details>";
 
@@ -100,9 +99,9 @@ public class CiReport {
 			"(?<" + REGEX_GROUP_BUILD_TRIGGER_TYPE + ">.+)",
 			"(?<" + REGEX_GROUP_BUILD_TRIGGER_ID + ">.+)"));
 
-	// bf9a31483c0d55c968f65b8ca4a11557f52de456 [Travis CI](https://travis-ci.com/flink-ci/flink/builds/138727067) FAILURE
+	// '<commit-hash>' '[<provider>](<build-url>)' '<build-status>'
 	private static final String TEMPLATE_USER_DATA_LINE = "* %s %s\n";
-	// Travis CI [FAILURE](https://travis-ci.com/flink-ci/flink/builds/138727067)
+	// '<provider>' '[<build-status>](<build-url>)'
 	private static final String TEMPLATE_USER_DATA_BUILD_ITEM = "%s: [%s](%s) ";
 
 	private static final String UNKNOWN_URL = "TBD";

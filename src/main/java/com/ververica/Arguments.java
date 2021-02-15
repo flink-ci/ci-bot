@@ -48,12 +48,6 @@ final class Arguments {
 	String githubToken;
 
 	@Parameter(
-			names = {"--travisToken", "-tt"},
-			required = false,
-			description = "The Travis authorization token with cancel permissions for the CI repository.")
-	String travisToken;
-
-	@Parameter(
 			names = {"--azureToken", "-at"},
 			required = false,
 			description = "The Azure authorization token with cancel permissions for the CI repository.")

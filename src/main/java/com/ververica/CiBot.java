@@ -23,7 +23,6 @@ import com.ververica.ci.CiActions;
 import com.ververica.ci.CiActionsContainer;
 import com.ververica.ci.CiProvider;
 import com.ververica.ci.azure.AzureActionsImpl;
-import com.ververica.ci.travis.TravisActionsImpl;
 import com.ververica.git.GitActionsImpl;
 import com.ververica.git.GitException;
 import com.ververica.github.GitHubCheckerStatus;
@@ -89,12 +88,8 @@ public class CiBot implements Runnable, AutoCloseable {
 		LOG.info("Starting CiBot. Revision: {} Date: {}", revisionInformation.getCommitHash(), revisionInformation.getCommitDate());
 
 		final CiActions[] ciActions =
-				Stream.concat(
-						arguments.travisToken == null
-								? Stream.empty()
-								: Stream.of(new TravisActionsImpl(LOCAL_BASE_PATH.resolve("travis"), arguments.travisToken)),
-						arguments.azureToken == null
-								? Stream.empty()
+				(arguments.azureToken == null
+								? Stream.<CiActions>empty()
 								: Stream.of(AzureActionsImpl.create(LOCAL_BASE_PATH.resolve("azure"), arguments.azureToken)))
 						.peek(ciAction -> LOG.info("Configured ci provider {}.", ciAction))
 						.toArray(CiActions[]::new);
