@@ -142,35 +142,42 @@ public class CiBot implements Runnable, AutoCloseable {
 	public void run() {
 		try {
 			Date lastUpdateDate = Date.from(Instant.now().minus(Duration.ofHours(backlogHours)));
-			while (true) {
-				// include a grace-period to handle GitHub not returning the latest data
-				final Date currentUpdateDate = Date.from(Instant.now().minus(Duration.ofMinutes(10)));
-				try {
-					tick(lastUpdateDate);
-					lastUpdateDate = currentUpdateDate;
-				} catch (SocketTimeoutException ste) {
-					LOG.error("Timeout occurred.", ste);
-				} catch (HttpException he) {
-					// this may happen in case of a timeout for some reasons
-					LOG.error("Generic HTTP exception occurred.", he);
-				} catch (TransportException te) {
-					// this may happen in case of a git timeout
-					LOG.error("Generic transport exception occurred.", te);
-				} catch (GHException ge) {
-					LOG.error("Generic github exception occurred.", ge);
-				} catch (GHFileNotFoundException gfnfe) {
-					LOG.error("GitHub server error.", gfnfe);
-				} catch (IOException ioe) {
-					LOG.error("Some IO error.", ioe);
-				} catch (GitException ge) {
-					LOG.error("A Git error has occurred.", ge);
+			if (pollingIntervalInSeconds > 0) {
+				while (true) {
+					lastUpdateDate = runOnce(lastUpdateDate);
+					LOG.info("Taking a nap...");
+					Thread.sleep(pollingIntervalInSeconds * 1000L);
 				}
-				LOG.info("Taking a nap...");
-				Thread.sleep(pollingIntervalInSeconds * 1000);
+			} else {
+				 runOnce(lastUpdateDate);
 			}
 		} catch (Exception e) {
 			LOG.error("An exception occurred.", e);
 		}
+	}
+
+	private Date runOnce(Date lastUpdateDate) throws Exception {
+		final Date currentUpdateDate = Date.from(Instant.now().minus(Duration.ofMinutes(10)));
+		try {
+			tick(lastUpdateDate);
+		} catch (SocketTimeoutException ste) {
+			LOG.error("Timeout occurred.", ste);
+		} catch (HttpException he) {
+			// this may happen in case of a timeout for some reasons
+			LOG.error("Generic HTTP exception occurred.", he);
+		} catch (TransportException te) {
+			// this may happen in case of a git timeout
+			LOG.error("Generic transport exception occurred.", te);
+		} catch (GHException ge) {
+			LOG.error("Generic github exception occurred.", ge);
+		} catch (GHFileNotFoundException gfnfe) {
+			LOG.error("GitHub server error.", gfnfe);
+		} catch (IOException ioe) {
+			LOG.error("Some IO error.", ioe);
+		} catch (GitException ge) {
+			LOG.error("A Git error has occurred.", ge);
+		}
+		return currentUpdateDate;
 	}
 
 	@Override
