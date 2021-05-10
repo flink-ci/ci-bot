@@ -68,7 +68,7 @@ final class Arguments {
 	@Parameter(
 			names = {"--interval", "-i"},
 			required = false,
-			description = "The polling interval in seconds.")
+			description = "The polling interval in seconds. If this parameter is <=0 then the bot will only do a single poll.")
 	int pollingIntervalInSeconds = 300;
 
 	@Parameter(
