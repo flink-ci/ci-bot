@@ -22,7 +22,6 @@ import com.ververica.ci.CiActions;
 import com.ververica.ci.CiActionsLookup;
 import okhttp3.Cache;
 import okhttp3.OkHttpClient;
-import okhttp3.OkUrlFactory;
 import org.kohsuke.github.GHCheckRun;
 import org.kohsuke.github.GHIssueComment;
 import org.kohsuke.github.GHIssueState;
@@ -31,7 +30,7 @@ import org.kohsuke.github.GHRepository;
 import org.kohsuke.github.GitHub;
 import org.kohsuke.github.GitHubBuilder;
 import org.kohsuke.github.PagedIterable;
-import org.kohsuke.github.extras.OkHttp3Connector;
+import org.kohsuke.github.extras.okhttp3.OkHttpConnector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -76,7 +75,7 @@ public class GithubActionsImpl implements GitHubActions {
 
 		return GitHubBuilder.fromEnvironment()
 				.withOAuthToken(token)
-				.withConnector(new OkHttp3Connector(new OkUrlFactory(client)))
+				.withConnector(new OkHttpConnector(client))
 				.build();
 	}
 
