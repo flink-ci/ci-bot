@@ -36,6 +36,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
 import java.util.UUID;
 
 public class GitActionsImpl implements GitActions {
@@ -43,6 +44,7 @@ public class GitActionsImpl implements GitActions {
 	private static final Logger LOG = LoggerFactory.getLogger(GitActionsImpl.class);
 
 	private final Git git;
+	private final int operationTimeoutInSeconds = (int) Duration.ofMinutes(10).getSeconds();
 
 	public GitActionsImpl(final Path temporaryDirectory) throws IOException {
 		final Path repoPath = temporaryDirectory.resolve(LOCAL_REPO_PATH);
@@ -96,6 +98,7 @@ public class GitActionsImpl implements GitActions {
 					// this should use a logger instead, but this would break the output being updated in-place
 					.setProgressMonitor(new TextProgressMonitor())
 					.setRefSpecs(refSpec)
+					.setTimeout(operationTimeoutInSeconds)
 					.call();
 		} catch (GitAPIException e) {
 			throw new GitException(e);
@@ -140,6 +143,7 @@ public class GitActionsImpl implements GitActions {
 					.setRemote(remoteName)
 					.setCredentialsProvider(new UsernamePasswordCredentialsProvider(authenticationToken, ""))
 					.setForce(force)
+					.setTimeout(operationTimeoutInSeconds)
 					.call();
 			for (PushResult pushResult : pushResults) {
 				LOG.debug(pushResult.getRemoteUpdates().toString());
