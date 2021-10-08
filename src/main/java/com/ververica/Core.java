@@ -27,6 +27,7 @@ import com.ververica.ci.CiActionsContainer;
 import com.ververica.ci.CiProvider;
 import com.ververica.git.GitActions;
 import com.ververica.git.GitException;
+import com.ververica.github.CommitNotFoundException;
 import com.ververica.github.GitHubActions;
 import com.ververica.github.GitHubCheckerStatus;
 import com.ververica.github.GitHubComment;
@@ -229,6 +230,7 @@ public class Core implements AutoCloseable {
 			ciReport.getBuilds().map(build -> build.commitHash).forEach(reportedCommitHashes::add);
 
 			final Collection<Build> buildsToAdd = new ArrayList<>();
+			final Collection<Build> buildsToRemove = new ArrayList<>();
 			ciReport.getBuilds()
 					.filter(build -> build.status.isPresent())
 					.filter(build -> build.status.get().getState() == GitHubCheckerStatus.State.PENDING || build.status.get().getState() == GitHubCheckerStatus.State.UNKNOWN)
@@ -264,7 +266,13 @@ public class Core implements AutoCloseable {
 							}
 						};
 
-						Iterable<GitHubCheckerStatus> commitState = gitHubActions.getCommitState(ciRepository, commitHash, githubCheckerNamePattern);
+						Iterable<GitHubCheckerStatus> commitState;
+						try {
+						  commitState = gitHubActions.getCommitState(ciRepository, commitHash, githubCheckerNamePattern);
+						} catch (CommitNotFoundException cnfe) {
+							buildsToRemove.add(build);
+							return;
+						}
 						StreamSupport.stream(commitState.spliterator(), false)
 								.filter(status -> status.getCiProvider() != CiProvider.Unknown)
 								.forEach(checkerStatusProcessor);
@@ -274,6 +282,7 @@ public class Core implements AutoCloseable {
 						}
 					});
 			buildsToAdd.forEach(ciReport::add);
+			buildsToRemove.forEach(ciReport::remove);
 
 			processManualTriggers(ciReport, pullRequestID)
 					.map(triggerComment -> new Build(

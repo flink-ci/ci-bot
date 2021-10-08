@@ -201,18 +201,29 @@ public class CiReport {
 	}
 
 	public void add(Build build) {
-		if (pullRequestID != build.pullRequestID) {
-			throw new IllegalArgumentException();
-		}
+		remove(build);
 
-		final String baseHash = build.commitHash + build.trigger.getType().name() + build.trigger.getId();
+		final String baseHash = getBuildHash(build);
 
-		builds.remove(baseHash);
-		builds.remove(baseHash + UNKNOWN_URL.hashCode());
 		builds.put(
 				baseHash + build.status.map(gitHubCheckerStatus -> String.valueOf(gitHubCheckerStatus.getDetailsUrl().hashCode())).orElse(""),
 				build
 		);
+	}
+
+	public void remove(Build build) {
+		if (pullRequestID != build.pullRequestID) {
+			throw new IllegalArgumentException();
+		}
+
+		final String baseHash = getBuildHash(build);
+
+		builds.remove(baseHash);
+		builds.remove(baseHash + UNKNOWN_URL.hashCode());
+	}
+
+	private static String getBuildHash(Build build) {
+		return build.commitHash + build.trigger.getType().name() + build.trigger.getId();
 	}
 
 	public Stream<Build> getBuilds() {

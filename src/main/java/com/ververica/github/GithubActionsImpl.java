@@ -23,6 +23,7 @@ import com.ververica.ci.CiActionsLookup;
 import okhttp3.Cache;
 import okhttp3.OkHttpClient;
 import org.kohsuke.github.GHCheckRun;
+import org.kohsuke.github.GHFileNotFoundException;
 import org.kohsuke.github.GHIssueComment;
 import org.kohsuke.github.GHIssueState;
 import org.kohsuke.github.GHPullRequest;
@@ -89,12 +90,21 @@ public class GithubActionsImpl implements GitHubActions {
 	/**
 	 * Retrieves the CI status for the given commit.
 	 */
-	public Iterable<GitHubCheckerStatus> getCommitState(String repositoryName, String commitHash, Pattern checkerNamePattern) {
+	public Iterable<GitHubCheckerStatus> getCommitState(String repositoryName, String commitHash, Pattern checkerNamePattern) throws CommitNotFoundException {
+		final PagedIterable<GHCheckRun> checkRuns;
 		try {
-			final PagedIterable<GHCheckRun> checkRuns = gitHub.getRepository(repositoryName)
+			checkRuns = gitHub.getRepository(repositoryName)
 					.getCommit(commitHash)
 					.getCheckRuns();
+		} catch (GHFileNotFoundException e) {
+			throw new CommitNotFoundException();
+		} catch (IOException e) {
+			// retry later
+			LOG.warn("Could not retrieve commit state.", e);
+			return Collections.emptyList();
+		}
 
+		try {
 			final Map<String, GitHubCheckerStatus> checksByUrl = new HashMap<>();
 			for (GHCheckRun checkRun : checkRuns) {
 				final String name = checkRun.getName();

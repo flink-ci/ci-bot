@@ -26,7 +26,7 @@ import java.util.stream.Stream;
 public interface GitHubActions extends AutoCloseable {
 	void submitComment(String repository, int pullRequestID, String comment) throws IOException;
 
-	Iterable<GitHubCheckerStatus> getCommitState(String repositoryName, String commitHash, Pattern checkerNamePattern);
+	Iterable<GitHubCheckerStatus> getCommitState(String repositoryName, String commitHash, Pattern checkerNamePattern) throws CommitNotFoundException;
 
 	Iterable<String> getBranches(String repositoryName) throws IOException;
 
