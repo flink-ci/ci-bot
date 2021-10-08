@@ -44,6 +44,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
@@ -187,6 +188,7 @@ public class CiBot implements Runnable, AutoCloseable {
 	}
 
 	private void tick(Date lastUpdateTime) throws Exception {
+		final Map<Integer, Collection<String>> branchesByPrID = core.getBranches();
 		core.getPullRequests(lastUpdateTime)
 				.map(FunctionWithException.wrap(
 						core::processPullRequest,
@@ -194,18 +196,22 @@ public class CiBot implements Runnable, AutoCloseable {
 				.filter(Optional::isPresent)
 				.map(Optional::get)
 				.forEach(ConsumerWithException.wrap(
-						this::processCiReport,
+						ciReport -> processCiReport(
+								ciReport,
+								branchesByPrID.getOrDefault(
+										ciReport.getPullRequestID(),
+										Collections.emptyList())),
 						(r, e) -> LOG.error("Error while processing pull request {}.", formatPullRequestID(r.getPullRequestID()), e)));
 		gitActions.cleanup();
 	}
 
-	private void processCiReport(CiReport ciReport) throws Exception {
+	private void processCiReport(CiReport ciReport, Collection<String> currentBranches) throws Exception {
 		final int pullRequestID = ciReport.getPullRequestID();
 
 		if (core.isPullRequestClosed(pullRequestID)) {
 			LOG.info("PullRequest {} was closed; canceling builds and deleting branches.", formatPullRequestID(pullRequestID));
 			ciReport.getPendingBuilds().forEach(core::cancelBuild);
-			ciReport.getFinishedBuilds().forEach(core::deleteCiBranch);
+			currentBranches.forEach(core::deleteCiBranch);
 			return;
 		}
 

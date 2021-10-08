@@ -42,6 +42,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -183,18 +184,36 @@ public class Core implements AutoCloseable {
 
 	public void deleteCiBranch(Build finishedBuild) throws GitException {
 		String ciBranchName = getCiBranchName(finishedBuild.pullRequestID, finishedBuild.commitHash);
+		deleteCiBranch(ciBranchName);
+	}
+
+	public void deleteCiBranch(String ciBranchName) throws GitException {
 		if (pendingBranchDeletions.getIfPresent(ciBranchName) != null) {
 			LOG.debug("Ignoring deletion of {} due to being cached.", ciBranchName);
 			return;
 		} else {
 			pendingBranchDeletions.put(ciBranchName, true);
 		}
-		LOG.info("Deleting CI branch for {}@{}.", formatPullRequestID(finishedBuild.pullRequestID), finishedBuild.commitHash);
+		LOG.info("Deleting branch {}.", ciBranchName);
 		gitActions.deleteBranch(
 				ciBranchName,
 				REMOTE_NAME_CI_REPOSITORY,
 				true,
 				githubToken);
+	}
+
+	public Map<Integer, Collection<String>> getBranches() throws IOException {
+		final Map<Integer, Collection<String>> branchesByPrID = new HashMap<>();
+		for (String branch : gitHubActions.getBranches(ciRepository)) {
+			final Matcher matcher = REGEX_PATTERN_CI_BRANCH.matcher(branch);
+			if (matcher.matches()) {
+				final int pullRequestId = Integer.parseInt(matcher.group(REGEX_GROUP_PULL_REQUEST_ID));
+				branchesByPrID
+						.computeIfAbsent(pullRequestId, ignored -> new ArrayList<>())
+						.add(branch);
+			}
+		}
+		return branchesByPrID;
 	}
 
 	public Stream<GithubPullRequest> getPullRequests(Date lastUpdatedAtCutoff) throws IOException {
