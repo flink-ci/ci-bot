@@ -17,22 +17,20 @@
 
 package com.ververica.github;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import com.ververica.ci.CiActions;
 import com.ververica.ci.CiActionsLookup;
 import okhttp3.Cache;
 import okhttp3.OkHttpClient;
 import okhttp3.OkUrlFactory;
-import okhttp3.Request;
-import okhttp3.Response;
+import org.kohsuke.github.GHCheckRun;
 import org.kohsuke.github.GHIssueComment;
 import org.kohsuke.github.GHIssueState;
 import org.kohsuke.github.GHPullRequest;
 import org.kohsuke.github.GHRepository;
 import org.kohsuke.github.GitHub;
 import org.kohsuke.github.GitHubBuilder;
+import org.kohsuke.github.PagedIterable;
 import org.kohsuke.github.extras.OkHttp3Connector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,8 +41,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
@@ -56,16 +54,13 @@ public class GithubActionsImpl implements GitHubActions {
 
 	private final CiActionsLookup ciActionsLookup;
 	private final Cache cache;
-	private final OkHttpClient okHttpClient;
 	private final GitHub gitHub;
-	private final String authorizationToken;
 
 	public GithubActionsImpl(CiActionsLookup ciActionsLookup, Path temporaryDirectory, String authorizationToken) throws IOException {
 		this.ciActionsLookup = ciActionsLookup;
 		cache = new Cache(temporaryDirectory.toFile(), 4 * 1024 * 1024);
-		okHttpClient = setupOkHttpClient(cache);
+		final OkHttpClient okHttpClient = setupOkHttpClient(cache);
 		gitHub = setupGitHub(authorizationToken, okHttpClient);
-		this.authorizationToken = authorizationToken;
 	}
 
 	private static OkHttpClient setupOkHttpClient(Cache cache) {
@@ -94,90 +89,67 @@ public class GithubActionsImpl implements GitHubActions {
 
 	/**
 	 * Retrieves the CI status for the given commit.
-	 *
-	 * Internally this uses a plain REST client, since the {@code github-api} does not support the
-	 * Checks API. (see https://github.com/kohsuke/github-api/issues/520)
 	 */
 	public Iterable<GitHubCheckerStatus> getCommitState(String repositoryName, String commitHash, Pattern checkerNamePattern) {
-		try (Response response = okHttpClient.newCall(new Request.Builder()
-				.url("https://api.github.com/repos/" + repositoryName + "/commits/" + commitHash + "/check-runs")
-				.addHeader("Accept", "application/vnd.github.antiope-preview+json")
-				.addHeader("Authorization", "token " + authorizationToken)
-				.build()).execute()) {
-			final String rawJson = response.body().string();
+		try {
+			final PagedIterable<GHCheckRun> checkRuns = gitHub.getRepository(repositoryName)
+					.getCommit(commitHash)
+					.getCheckRuns();
 
-			try {
-				final ObjectMapper objectMapper = new ObjectMapper();
-				final JsonNode jsonNode = objectMapper.readTree(rawJson);
-				if (jsonNode == null || jsonNode.get("check_runs") == null) {
-					LOG.warn("Could not retrieve checker for commit {}.", commitHash);
-					return Collections.emptyList();
+			final Map<String, GitHubCheckerStatus> checksByUrl = new HashMap<>();
+			for (GHCheckRun checkRun : checkRuns) {
+				final String name = checkRun.getName();
+				if (!checkerNamePattern.matcher(name).matches()) {
+					LOG.trace("Excluded checker with name {}.", name);
+					continue;
 				}
-				final Iterator<JsonNode> checkJson = jsonNode.get("check_runs").iterator();
+				LOG.trace("Processing checker run with name {}.", name);
 
-				final Map<String, GitHubCheckerStatus> checksByUrl = new HashMap<>();
-				while (checkJson.hasNext()) {
-					final JsonNode next = checkJson.next();
+				final GHCheckRun.Status status = checkRun.getStatus();
 
-					final String name = next.get("name").asText();
-					if (!checkerNamePattern.matcher(name).matches()) {
-						LOG.trace("Excluded checker with name {}.", name);
-						continue;
-					}
-					LOG.trace("Processing checker run with name {}.", name);
+				final Optional<GHCheckRun.Conclusion> conclusion = Optional.ofNullable(checkRun.getConclusion());
 
-					final JsonNode statusNode = next.get("status");
-					final GHStatus status = GHStatus.valueOf(statusNode.asText().toUpperCase());
+				final String appName = checkRun.getApp().getName().toLowerCase(Locale.ROOT);
+				final Optional<CiActions> ciActionsOptional = ciActionsLookup.getActionsForString(appName);
+				if (!ciActionsOptional.isPresent()) {
+					LOG.warn("Skipping checker since CI provider could not be determined. Slug={}.", appName);
+					continue;
+				}
+				CiActions ciActions = ciActionsOptional.get();
 
-					final JsonNode conclusionNode = next.get("conclusion");
-					final Optional<GHConclusion> conclusion = parseConclusion(conclusionNode);
+				final String detailsUrl = ciActions.normalizeUrl(checkRun.getDetailsUrl().toString());
 
-					final String appSlug = next.get("app").get("slug").asText();
-					final Optional<CiActions> ciActionsOptional = ciActionsLookup.getActionsForString(appSlug);
-					if (!ciActionsOptional.isPresent()) {
-						LOG.warn("Skipping checker since CI provider could not be determined. Slug={}.", appSlug);
-						continue;
-					}
-					CiActions ciActions = ciActionsOptional.get();
-
-					final JsonNode detailsUrlNode = next.get("details_url");
-					final String detailsUrl = ciActions.normalizeUrl(detailsUrlNode.asText());
-
-					final GitHubCheckerStatus checkerStatus;
-					if (status != GHStatus.COMPLETED) {
-						checkerStatus = new GitHubCheckerStatus(GitHubCheckerStatus.State.PENDING, detailsUrl, ciActions.getCiProvider());
+				final GitHubCheckerStatus checkerStatus;
+				if (status != GHCheckRun.Status.COMPLETED) {
+					checkerStatus = new GitHubCheckerStatus(GitHubCheckerStatus.State.PENDING, detailsUrl, ciActions.getCiProvider());
+				} else {
+					if (!conclusion.isPresent()) {
+						LOG.warn("Completed check did not have conclusion attached.");
+						checkerStatus = null;
 					} else {
-						if (!conclusion.isPresent()) {
-							LOG.warn("Completed check did not have conclusion attached.");
-							checkerStatus = null;
-						} else {
-							final GitHubCheckerStatus.State state;
-							switch (conclusion.get()) {
-								case SUCCESS:
-									state = GitHubCheckerStatus.State.SUCCESS;
-									break;
-								case CANCELLED:
-									state = GitHubCheckerStatus.State.CANCELED;
-									break;
-								default:
-									state = GitHubCheckerStatus.State.FAILURE;
-									break;
-							}
-							checkerStatus = new GitHubCheckerStatus(state, detailsUrl, ciActions.getCiProvider());
+						final GitHubCheckerStatus.State state;
+						switch (conclusion.get()) {
+							case SUCCESS:
+								state = GitHubCheckerStatus.State.SUCCESS;
+								break;
+							case CANCELLED:
+								state = GitHubCheckerStatus.State.CANCELED;
+								break;
+							default:
+								state = GitHubCheckerStatus.State.FAILURE;
+								break;
 						}
-					}
-					if (checkerStatus != null) {
-						checksByUrl.compute(detailsUrl, (s, gitHubCheckerStatus) ->
-								gitHubCheckerStatus == null
-										? checkerStatus
-										: merge(checkerStatus, gitHubCheckerStatus));
+						checkerStatus = new GitHubCheckerStatus(state, detailsUrl, ciActions.getCiProvider());
 					}
 				}
-				return new ArrayList<>(checksByUrl.values());
-			} catch (Exception e) {
-				LOG.debug("Raw Check JSON: {}.", rawJson);
-				throw e;
+				if (checkerStatus != null) {
+					checksByUrl.compute(detailsUrl, (s, gitHubCheckerStatus) ->
+							gitHubCheckerStatus == null
+									? checkerStatus
+									: merge(checkerStatus, gitHubCheckerStatus));
+				}
 			}
+			return new ArrayList<>(checksByUrl.values());
 		} catch (Exception e) {
 			// super janky but don't bother handling this in a better way
 			// there are just too many failure points here
@@ -273,37 +245,5 @@ public class GithubActionsImpl implements GitHubActions {
 		} catch (Exception e) {
 			LOG.debug("Error while shutting down cache.", e);
 		}
-	}
-
-	private static Optional<GHConclusion> parseConclusion(JsonNode node) {
-		if (node == null) {
-			return Optional.empty();
-		}
-
-		String rawConclusion = node.asText().toUpperCase();
-		try {
-			return Optional.of(GHConclusion.valueOf(rawConclusion));
-		} catch (IllegalArgumentException iae) {
-			LOG.error("Encountered unknown conclusion {}.", rawConclusion);
-			return Optional.of(GHConclusion.FAILURE);
-		}
-
-	}
-
-	private enum GHConclusion {
-		SUCCESS,
-		FAILURE,
-		NEUTRAL,
-		STALE,
-		CANCELLED,
-		TIMED_OUT,
-		ACTION_REQUIRED,
-		NULL
-	}
-
-	private enum GHStatus {
-		QUEUED,
-		IN_PROGRESS,
-		COMPLETED
 	}
 }
