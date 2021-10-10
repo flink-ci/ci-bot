@@ -112,7 +112,7 @@ public class GitActionsImpl implements GitActions {
 	}
 
 	@Override
-	public void deleteBranch(String localBranchName, boolean force) throws GitException {
+	public void deleteLocalBranch(String localBranchName, boolean force) throws GitException {
 		LOG.debug("Deleting branch {}.", localBranchName);
 		try {
 			git.branchDelete()
@@ -125,7 +125,7 @@ public class GitActionsImpl implements GitActions {
 	}
 
 	@Override
-	public void deleteBranch(String remoteBranchName, String remoteName, boolean force, String authenticationToken) throws GitException {
+	public void deleteRemoteBranch(String remoteBranchName, String remoteName, boolean force, String authenticationToken) throws GitException {
 		LOG.debug("Deleting branch {}/{}.", remoteName, remoteBranchName);
 
 		internalPushGitBranch(

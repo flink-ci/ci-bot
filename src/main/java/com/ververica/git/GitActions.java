@@ -26,9 +26,9 @@ public interface GitActions extends AutoCloseable {
 
 	void pushBranch(String localBranchName, String remoteBranchName, String remoteName, boolean force, String authenticationToken) throws GitException;
 
-	void deleteBranch(String localBranchName, boolean force) throws GitException;
+	void deleteLocalBranch(String localBranchName, boolean force) throws GitException;
 
-	void deleteBranch(String remoteBranchName, String remoteName, boolean force, String authenticationToken) throws GitException;
+	void deleteRemoteBranch(String remoteBranchName, String remoteName, boolean force, String authenticationToken) throws GitException;
 
 	String getHeadCommitSHA(String localBranchName) throws GitException;
 

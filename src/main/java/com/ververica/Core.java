@@ -195,7 +195,7 @@ public class Core implements AutoCloseable {
 			pendingBranchDeletions.put(ciBranchName, true);
 		}
 		LOG.info("Deleting branch {}.", ciBranchName);
-		gitActions.deleteBranch(
+		gitActions.deleteRemoteBranch(
 				ciBranchName,
 				REMOTE_NAME_CI_REPOSITORY,
 				true,
@@ -477,7 +477,7 @@ public class Core implements AutoCloseable {
 				false,
 				githubToken);
 
-		gitActions.deleteBranch(
+		gitActions.deleteLocalBranch(
 				String.valueOf(pullRequestID),
 				true);
 	}
