@@ -68,7 +68,6 @@ public class CiBot implements Runnable, AutoCloseable {
 	private static final Path LOCAL_BASE_PATH = Paths.get(System.getProperty("java.io.tmpdir"), "ci_bot");
 
 	private final Core core;
-	private final GitActionsImpl gitActions;
 	private final int pollingIntervalInSeconds;
 	private final int backlogHours;
 
@@ -120,7 +119,6 @@ public class CiBot implements Runnable, AutoCloseable {
 							new GithubActionsImpl(ciActionsContainer, LOCAL_BASE_PATH.resolve("github"), arguments.githubToken),
 							ciActionsContainer,
 							arguments.checkerNamePattern),
-					gitActions,
 					arguments.pollingIntervalInSeconds,
 					arguments.backlogHours)) {
 				ciBot.run();
@@ -131,9 +129,8 @@ public class CiBot implements Runnable, AutoCloseable {
 		}
 	}
 
-	public CiBot(Core core, GitActionsImpl gitActions, int pollingIntervalInSeconds, int backlogHours) {
+	public CiBot(Core core, int pollingIntervalInSeconds, int backlogHours) {
 		this.core = core;
-		this.gitActions = gitActions;
 		this.pollingIntervalInSeconds = pollingIntervalInSeconds;
 		this.backlogHours = backlogHours;
 	}
@@ -213,7 +210,7 @@ public class CiBot implements Runnable, AutoCloseable {
 										ciReport.getPullRequestID(),
 										Collections.emptyList())),
 						(r, e) -> LOG.error("Error while processing pull request {}.", formatPullRequestID(r.getPullRequestID()), e)));
-		gitActions.cleanup();
+		core.cleanup();
 	}
 
 	private void processCiReport(CiReport ciReport, Collection<String> currentBranches) throws Exception {

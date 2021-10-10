@@ -32,6 +32,7 @@ import com.ververica.github.GitHubActions;
 import com.ververica.github.GitHubCheckerStatus;
 import com.ververica.github.GitHubComment;
 import com.ververica.github.GithubPullRequest;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -131,6 +132,15 @@ public class Core implements AutoCloseable {
 		gitActions.addRemote(getGitHubURL(ciRepository), REMOTE_NAME_CI_REPOSITORY);
 
 		gitActions.fetchBranch("master", REMOTE_NAME_OBSERVED_REPOSITORY, false);
+	}
+
+	/** Remove any unnecessary resources. */
+	public void cleanup() {
+		try {
+			gitActions.cleanup();
+		} catch (GitAPIException e) {
+			LOG.debug("Error while cleaning up git.", e);
+		}
 	}
 
 	@Override
