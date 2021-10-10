@@ -47,9 +47,11 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -69,6 +71,8 @@ public class CiBot implements Runnable, AutoCloseable {
 	private final GitActionsImpl gitActions;
 	private final int pollingIntervalInSeconds;
 	private final int backlogHours;
+
+	private final Set<Integer> pullRequestWithPendingBuilds = new HashSet<>();
 
 	public static void main(String[] args) throws Exception {
 		final Arguments arguments = new Arguments();
@@ -189,12 +193,19 @@ public class CiBot implements Runnable, AutoCloseable {
 
 	private void tick(Date lastUpdateTime) throws Exception {
 		final Map<Integer, Collection<String>> branchesByPrID = core.getBranches();
-		core.getPullRequests(lastUpdateTime)
+		core.getPullRequests(lastUpdateTime, pullRequestWithPendingBuilds)
 				.map(FunctionWithException.wrap(
 						core::processPullRequest,
 						(r, e) -> LOG.error("Error while processing pull request {}.", formatPullRequestID(r.getID()), e)))
 				.filter(Optional::isPresent)
 				.map(Optional::get)
+				.peek(ciReport -> {
+					if (Stream.concat(ciReport.getRequiredBuilds(), Stream.concat(ciReport.getUnknownBuilds(), ciReport.getPendingBuilds())).findAny().isPresent()) {
+						pullRequestWithPendingBuilds.add(ciReport.getPullRequestID());
+					} else {
+						pullRequestWithPendingBuilds.remove(ciReport.getPullRequestID());
+					}
+				})
 				.forEach(ConsumerWithException.wrap(
 						ciReport -> processCiReport(
 								ciReport,

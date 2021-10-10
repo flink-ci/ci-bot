@@ -216,7 +216,7 @@ public class Core implements AutoCloseable {
 		return branchesByPrID;
 	}
 
-	public Stream<GithubPullRequest> getPullRequests(Date lastUpdatedAtCutoff) throws IOException {
+	public Stream<GithubPullRequest> getPullRequests(Date lastUpdatedAtCutoff, Set<Integer> pullRequestWithPendingBuilds) throws IOException {
 		LOG.info("Retrieving observed repository state ({}).", observedRepository);
 
 		Iterable<GithubPullRequest> recentlyUpdatedOpenPullRequests = gitHubActions.getRecentlyUpdatedOpenPullRequests(observedRepository, lastUpdatedAtCutoff);
@@ -229,8 +229,8 @@ public class Core implements AutoCloseable {
 						Integer.parseInt(matcher.group(REGEX_GROUP_PULL_REQUEST_ID)),
 						Date.from(Instant.now()),
 						matcher.group(REGEX_GROUP_COMMIT_HASH)))
-				.filter(pr -> !pullRequestsToProcessByID.containsKey(pr.getID()))
-				.forEach(pr -> pullRequestsToProcessByID.put(pr.getID(), pr));
+				.filter(pr -> pullRequestWithPendingBuilds.contains(pr.getID()))
+				.forEach(pr -> pullRequestsToProcessByID.putIfAbsent(pr.getID(), pr));
 
 		return pullRequestsToProcessByID.values().stream();
 	}
