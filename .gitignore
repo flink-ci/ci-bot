@@ -3,3 +3,4 @@ target/
 *.iml
 dependency-reduced-pom.xml
 ci-bot.log
+src/test/java/com/ververica/manual/*
