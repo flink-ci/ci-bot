@@ -34,7 +34,6 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Base64;
-import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.regex.Matcher;
@@ -107,42 +106,22 @@ public class AzureActionsImpl implements CiActions {
 	}
 
 	@Override
-	public Optional<String> runBuild(String detailsUrl, String branch, List<String> arguments) {
+	public void retryBuild(String detailsUrl, String branch) {
 		LOG.debug("Triggering build for branch {}.", branch);
 
 		final String projectSlug = extractProjectSlug(detailsUrl);
 		final String buildId = extractBuildId(detailsUrl);
-		final String args = arguments.size() == 0
-						? ""
-						: "\"parameters\":\"{\\\"args\\\":\\\"" + String.join(" ", arguments) + "\\\"}\"";
 
 		Optional<Integer> definitionId = getDefinitionId(projectSlug, buildId);
 		if (!definitionId.isPresent()) {
 			LOG.error("Failed to trigger build; could not retrieve definition id.");
-			return Optional.empty();
+			return;
 		}
 
-		Optional<String> response = submitRequest(
-				"https://dev.azure.com/" + projectSlug + "/_apis/build/builds",
-				"POST",
-				RequestBody.create(
-						MediaType.get("application/json"),
-						"{" +
-								"\"definition\": {\"id\": " + definitionId.get() + "}," +
-								"\"sourceBranch\": \"" + branch + "\"," +
-								args +
-								"}"));
-
-		if (response.isPresent()) {
-			try {
-				String newDetailsUrl = OBJECT_MAPPER.readTree(response.get()).get("_links").get("web").get("href").asText();
-				return Optional.of(newDetailsUrl);
-			} catch (IOException e) {
-				LOG.error("Failed to process response.", e);
-			}
-		}
-
-		return Optional.empty();
+		submitRequest(
+				"https://dev.azure.com/" + projectSlug + "/_apis/build/builds/" + buildId + "?retry=true",
+				"PATCH",
+				RequestBody.create(MediaType.get("application/json"), "{}"));
 	}
 
 	@Override

@@ -29,7 +29,7 @@ public interface CiActions extends AutoCloseable {
 
 	void cancelBuild(String detailsUrl);
 
-	Optional<String> runBuild(String detailsUrl, String branch, List<String> arguments);
+	void retryBuild(String detailsUrl, String branch);
 
 	default boolean supportsDirectBuildStatusRetrieval() {
 		return false;

@@ -235,6 +235,22 @@ public class Core implements AutoCloseable {
 		return pullRequestsToProcessByID.values().stream();
 	}
 
+	private static boolean requiresCheckerStatusRetrieval(Build build) {
+		return build.status
+				.map(GitHubCheckerStatus::getState)
+				.map(state -> {
+					switch (state) {
+						case PENDING: // we need the current state
+						case UNKNOWN: // we need the build url
+						case FAILURE: // failed runs may be retried
+							return true;
+						default:
+							return false;
+					}
+				})
+				.orElse(false);
+	}
+
 	public CiReport processPullRequest(GithubPullRequest pullRequest) throws IOException {
 		LOG.debug("Processing PR {}@{}.", formatPullRequestID(pullRequest.getID()), pullRequest.getHeadCommitHash());
 		final int pullRequestID = pullRequest.getID();
@@ -251,8 +267,7 @@ public class Core implements AutoCloseable {
 			final Collection<Build> buildsToAdd = new ArrayList<>();
 			final Collection<Build> buildsToRemove = new ArrayList<>();
 			ciReport.getBuilds()
-					.filter(build -> build.status.isPresent())
-					.filter(build -> build.status.get().getState() == GitHubCheckerStatus.State.PENDING || build.status.get().getState() == GitHubCheckerStatus.State.UNKNOWN)
+					.filter(Core::requiresCheckerStatusRetrieval)
 					.forEach(build -> {
 						String commitHash = build.commitHash;
 
@@ -418,11 +433,13 @@ public class Core implements AutoCloseable {
 				GitHubCheckerStatus gitHubCheckerStatus = lastBuild.status.get();
 
 				return ciActions.getActionsForProvider(gitHubCheckerStatus.getCiProvider())
-						.flatMap(ciAction -> ciAction.runBuild(
-								gitHubCheckerStatus.getDetailsUrl(),
-								getCiBranchName(lastBuild.pullRequestID, lastBuild.commitHash),
-								arguments
-						))
+						.map(ciAction -> {
+							ciAction.retryBuild(
+										gitHubCheckerStatus.getDetailsUrl(),
+										getCiBranchName(lastBuild.pullRequestID, lastBuild.commitHash));
+							return gitHubCheckerStatus.getDetailsUrl();
+						}
+						)
 						.map(url -> new Build(
 								lastBuild.pullRequestID,
 								lastBuild.commitHash,
