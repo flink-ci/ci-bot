@@ -38,5 +38,7 @@ public interface GitHubActions extends AutoCloseable {
 
 	boolean isPullRequestClosed(String repositoryName, int pullRequestID) throws IOException;
 
+	RateLimitInformation getRateLimitInformation() throws IOException;
+
 	void close();
 }

@@ -32,11 +32,14 @@ import com.ververica.github.GitHubActions;
 import com.ververica.github.GitHubCheckerStatus;
 import com.ververica.github.GitHubComment;
 import com.ververica.github.GithubPullRequest;
+import com.ververica.github.RateLimitInformation;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -78,6 +81,8 @@ public class Core implements AutoCloseable {
 
 	private static final String REGEX_GROUP_COMMAND = "command";
 	private static final Pattern REGEX_PATTERN_COMMAND_MENTION = Pattern.compile("@flinkbot run (?<" + REGEX_GROUP_COMMAND + ">[\\w ]+)", Pattern.CASE_INSENSITIVE);
+
+	private static final DateFormat dateFormat = new SimpleDateFormat("HH:mm:ss");
 
 	private final String observedRepository;
 	private final String ciRepository;
@@ -140,6 +145,19 @@ public class Core implements AutoCloseable {
 			gitActions.cleanup();
 		} catch (GitAPIException e) {
 			LOG.debug("Error while cleaning up git.", e);
+		}
+	}
+
+	public void logRateLimitInformation() {
+		try {
+			final RateLimitInformation rateLimitInformation = gitHubActions.getRateLimitInformation();
+			LOG.info("Github Rate limit:\n\t" +
+							"Remaining:  {}\n\t" +
+							"Reset date: {}",
+					rateLimitInformation.getRemainingRequests(),
+					dateFormat.format(rateLimitInformation.getResetDate()));
+		} catch (IOException e) {
+			LOG.debug("Error while retrieving GH rate limit information.", e);
 		}
 	}
 

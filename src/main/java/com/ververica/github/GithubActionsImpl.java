@@ -27,6 +27,7 @@ import org.kohsuke.github.GHFileNotFoundException;
 import org.kohsuke.github.GHIssueComment;
 import org.kohsuke.github.GHIssueState;
 import org.kohsuke.github.GHPullRequest;
+import org.kohsuke.github.GHRateLimit;
 import org.kohsuke.github.GHRepository;
 import org.kohsuke.github.GitHub;
 import org.kohsuke.github.GitHubBuilder;
@@ -245,6 +246,13 @@ public class GithubActionsImpl implements GitHubActions {
 		final GHRepository observedGitHubRepository = gitHub.getRepository(repositoryName);
 
 		return observedGitHubRepository.getPullRequest(pullRequestID).getState() == GHIssueState.CLOSED;
+	}
+
+	@Override
+	public RateLimitInformation getRateLimitInformation() throws IOException {
+		final GHRateLimit rateLimit = gitHub.getRateLimit();
+
+		return new RateLimitInformation(rateLimit.getResetDate(), rateLimit.getRemaining());
 	}
 
 	@Override

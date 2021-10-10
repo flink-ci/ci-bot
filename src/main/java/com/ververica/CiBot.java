@@ -211,6 +211,7 @@ public class CiBot implements Runnable, AutoCloseable {
 										Collections.emptyList())),
 						(r, e) -> LOG.error("Error while processing pull request {}.", formatPullRequestID(r.getPullRequestID()), e)));
 		core.cleanup();
+		core.logRateLimitInformation();
 	}
 
 	private void processCiReport(CiReport ciReport, Collection<String> currentBranches) throws Exception {
