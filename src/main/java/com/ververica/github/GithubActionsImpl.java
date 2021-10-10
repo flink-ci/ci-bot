@@ -188,8 +188,8 @@ public class GithubActionsImpl implements GitHubActions {
 	}
 
 	@Override
-	public Iterable<String> getBranches(String repositoryName) throws IOException {
-		return gitHub.getRepository(repositoryName).getBranches().keySet();
+	public Stream<String> getBranches(String repositoryName) throws IOException {
+		return gitHub.getRepository(repositoryName).getBranches().keySet().stream();
 	}
 
 	@Override
@@ -224,7 +224,7 @@ public class GithubActionsImpl implements GitHubActions {
 	}
 
 	@Override
-	public Iterable<GithubPullRequest> getRecentlyUpdatedOpenPullRequests(String repositoryName, Date since) throws IOException {
+	public Stream<GithubPullRequest> getRecentlyUpdatedOpenPullRequests(String repositoryName, Date since) throws IOException {
 		final GHRepository observedGitHubRepository = gitHub.getRepository(repositoryName);
 
 		final List<GithubPullRequest> pullRequests = new ArrayList<>();
@@ -237,7 +237,7 @@ public class GithubActionsImpl implements GitHubActions {
 			}
 		}
 
-		return pullRequests;
+		return pullRequests.stream();
 	}
 
 	@Override

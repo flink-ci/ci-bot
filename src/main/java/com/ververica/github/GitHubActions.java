@@ -28,13 +28,13 @@ public interface GitHubActions extends AutoCloseable {
 
 	Iterable<GitHubCheckerStatus> getCommitState(String repositoryName, String commitHash, Pattern checkerNamePattern) throws CommitNotFoundException;
 
-	Iterable<String> getBranches(String repositoryName) throws IOException;
+	Stream<String> getBranches(String repositoryName) throws IOException;
 
 	Iterable<GitHubComment> getComments(String repositoryName, int pullRequestID, String username) throws IOException;
 
 	Stream<GitHubComment> getComments(String repositoryName, int pullRequestID, Pattern pattern) throws IOException;
 
-	Iterable<GithubPullRequest> getRecentlyUpdatedOpenPullRequests(String repositoryName, Date since) throws IOException;
+	Stream<GithubPullRequest> getRecentlyUpdatedOpenPullRequests(String repositoryName, Date since) throws IOException;
 
 	boolean isPullRequestClosed(String repositoryName, int pullRequestID) throws IOException;
 

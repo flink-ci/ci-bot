@@ -204,7 +204,7 @@ public class Core implements AutoCloseable {
 
 	public Map<Integer, Collection<String>> getBranches() throws IOException {
 		final Map<Integer, Collection<String>> branchesByPrID = new HashMap<>();
-		for (String branch : gitHubActions.getBranches(ciRepository)) {
+		gitHubActions.getBranches(ciRepository).forEach(branch -> {
 			final Matcher matcher = REGEX_PATTERN_CI_BRANCH.matcher(branch);
 			if (matcher.matches()) {
 				final int pullRequestId = Integer.parseInt(matcher.group(REGEX_GROUP_PULL_REQUEST_ID));
@@ -212,27 +212,40 @@ public class Core implements AutoCloseable {
 						.computeIfAbsent(pullRequestId, ignored -> new ArrayList<>())
 						.add(branch);
 			}
-		}
+		});
 		return branchesByPrID;
 	}
 
 	public Stream<GithubPullRequest> getPullRequests(Date lastUpdatedAtCutoff, Set<Integer> pullRequestWithPendingBuilds) throws IOException {
 		LOG.info("Retrieving observed repository state ({}).", observedRepository);
 
-		Iterable<GithubPullRequest> recentlyUpdatedOpenPullRequests = gitHubActions.getRecentlyUpdatedOpenPullRequests(observedRepository, lastUpdatedAtCutoff);
-		Map<Integer, GithubPullRequest> pullRequestsToProcessByID = new TreeMap<>(Integer::compareTo);
-		recentlyUpdatedOpenPullRequests.forEach(pr -> pullRequestsToProcessByID.put(pr.getID(), pr));
-		StreamSupport.stream(gitHubActions.getBranches(ciRepository).spliterator(), false)
+		final Map<Integer, GithubPullRequest> pullRequestsToProcessByID = new TreeMap<>(Integer::compareTo);
+
+		pullRequestsToProcessByID.putAll(getRecentlyUpdatedPullRequests(lastUpdatedAtCutoff));
+
+		deriveActivePrsFromCIBranches().forEach(pr  ->{
+			if (pullRequestWithPendingBuilds.contains(pr.getID())) {
+				pullRequestsToProcessByID.putIfAbsent(pr.getID(), pr);
+			}
+		});
+
+		return pullRequestsToProcessByID.values().stream();
+	}
+
+	private Map<Integer, GithubPullRequest> getRecentlyUpdatedPullRequests(Date lastUpdatedAtCutoff) throws IOException {
+		return gitHubActions.getRecentlyUpdatedOpenPullRequests(observedRepository, lastUpdatedAtCutoff)
+				.collect(Collectors.toMap(GithubPullRequest::getID, pr -> pr));
+	}
+
+	private Stream<GithubPullRequest> deriveActivePrsFromCIBranches() throws IOException {
+		return gitHubActions.getBranches(ciRepository)
 				.map(REGEX_PATTERN_CI_BRANCH::matcher)
 				.filter(Matcher::matches)
 				.map(matcher -> new GithubPullRequest(
 						Integer.parseInt(matcher.group(REGEX_GROUP_PULL_REQUEST_ID)),
 						Date.from(Instant.now()),
 						matcher.group(REGEX_GROUP_COMMIT_HASH)))
-				.filter(pr -> pullRequestWithPendingBuilds.contains(pr.getID()))
-				.forEach(pr -> pullRequestsToProcessByID.putIfAbsent(pr.getID(), pr));
-
-		return pullRequestsToProcessByID.values().stream();
+				.collect(Collectors.toMap(GithubPullRequest::getID, pr -> pr, (first, ignored) -> first)).values().stream();
 	}
 
 	private static boolean requiresCheckerStatusRetrieval(Build build) {
