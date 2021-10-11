@@ -114,11 +114,6 @@ public class Core implements AutoCloseable {
 			.expireAfterWrite(1, TimeUnit.HOURS)
 			.build();
 
-	private final Cache<Long, Boolean> pendingCiReportUpdates = CacheBuilder.newBuilder()
-			.maximumSize(1000)
-			.expireAfterWrite(1, TimeUnit.HOURS)
-			.build();
-
 	public Core(String observedRepository, String ciRepository, String username, String githubToken, GitActions gitActions, GitHubActions gitHubActions, CiActionsContainer ciActions, String gitHubCheckerNameFilter) throws Exception {
 		this.observedRepository = observedRepository;
 		this.ciRepository = ciRepository;
@@ -171,12 +166,6 @@ public class Core implements AutoCloseable {
 
 	public void updateCiReport(final CiReport parsedCiReport) throws IOException {
 		final String comment = parsedCiReport.toString();
-		final long cacheKey = (long) parsedCiReport.getPullRequestID() << 32 | comment.hashCode();
-		if (pendingCiReportUpdates.getIfPresent(cacheKey) != null) {
-			LOG.debug("Ignoring ci report update for PR {} due to being cached.", formatPullRequestID(parsedCiReport.getPullRequestID()));
-			return;
-		}
-		pendingCiReportUpdates.put(cacheKey, true);
 
 		final int pullRequestID = parsedCiReport.getPullRequestID();
 		Optional<GitHubComment> ciReport = getCiReportComment(pullRequestID);
