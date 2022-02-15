@@ -241,8 +241,13 @@ public class CiBot implements Runnable, AutoCloseable {
 		// this can happen if another build was triggered while a previous build was still in the unknown state
 		if (ciReport.getPendingBuilds().count() > 1) {
 			final List<Build> pendingBuilds = ciReport.getPendingBuilds().collect(Collectors.toList());
+			final Build latestPendingBuild = pendingBuilds.get(pendingBuilds.size() - 1);
 			for (int i = 0; i < pendingBuilds.size() - 1; i++) {
-				core.cancelBuild(pendingBuilds.get(i));
+				final Build otherPendingBuild = pendingBuilds.get(i);
+				// there may be multiple pending builds when a manual one was triggered
+				if (!otherPendingBuild.commitHash.equals(latestPendingBuild.commitHash)) {
+					core.cancelBuild(otherPendingBuild);
+				}
 			}
 		}
 
