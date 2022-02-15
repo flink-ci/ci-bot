@@ -91,7 +91,7 @@ public class GithubActionsImpl implements GitHubActions {
 	/**
 	 * Retrieves the CI status for the given commit.
 	 */
-	public Iterable<GitHubCheckerStatus> getCommitState(String repositoryName, String commitHash, Pattern checkerNamePattern) throws CommitNotFoundException {
+	public Iterable<GitHubCheckerStatus> getCommitState(String repositoryName, String commitHash) throws CommitNotFoundException {
 		final PagedIterable<GHCheckRun> checkRuns;
 		try {
 			checkRuns = gitHub.getRepository(repositoryName)
@@ -109,10 +109,6 @@ public class GithubActionsImpl implements GitHubActions {
 			final Map<String, GitHubCheckerStatus> checksByUrl = new HashMap<>();
 			for (GHCheckRun checkRun : checkRuns) {
 				final String name = checkRun.getName();
-				if (!checkerNamePattern.matcher(name).matches()) {
-					LOG.trace("Excluded checker with name {}.", name);
-					continue;
-				}
 				LOG.trace("Processing checker run with name {}.", name);
 
 				final GHCheckRun.Status status = checkRun.getStatus();

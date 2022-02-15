@@ -92,8 +92,6 @@ public class Core implements AutoCloseable {
 	private final GitHubActions gitHubActions;
 	private final CiActionsContainer ciActions;
 
-	private final Pattern githubCheckerNamePattern;
-
 	private final Cache<Integer, Boolean> pendingMirrors = CacheBuilder.newBuilder()
 			.maximumSize(50)
 			.expireAfterWrite(1, TimeUnit.HOURS)
@@ -114,7 +112,7 @@ public class Core implements AutoCloseable {
 			.expireAfterWrite(1, TimeUnit.HOURS)
 			.build();
 
-	public Core(String observedRepository, String ciRepository, String username, String githubToken, GitActions gitActions, GitHubActions gitHubActions, CiActionsContainer ciActions, String gitHubCheckerNameFilter) throws Exception {
+	public Core(String observedRepository, String ciRepository, String username, String githubToken, GitActions gitActions, GitHubActions gitHubActions, CiActionsContainer ciActions) throws Exception {
 		this.observedRepository = observedRepository;
 		this.ciRepository = ciRepository;
 		this.username = username;
@@ -122,7 +120,6 @@ public class Core implements AutoCloseable {
 		this.gitActions = gitActions;
 		this.gitHubActions = gitHubActions;
 		this.ciActions = ciActions;
-		this.githubCheckerNamePattern = Pattern.compile(gitHubCheckerNameFilter);
 
 		setupGit(gitActions, observedRepository, ciRepository);
 	}
@@ -332,7 +329,7 @@ public class Core implements AutoCloseable {
 
 						Iterable<GitHubCheckerStatus> commitState;
 						try {
-						  commitState = gitHubActions.getCommitState(ciRepository, commitHash, githubCheckerNamePattern);
+						  commitState = gitHubActions.getCommitState(ciRepository, commitHash);
 						} catch (CommitNotFoundException cnfe) {
 							buildsToRemove.add(build);
 							return;
