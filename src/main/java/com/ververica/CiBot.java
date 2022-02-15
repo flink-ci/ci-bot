@@ -238,6 +238,15 @@ public class CiBot implements Runnable, AutoCloseable {
 			ciReport.getPendingBuilds().forEach(core::cancelBuild);
 		}
 
+		// check for redundant pending builds
+		// this can happen if another build was triggered while a previous build was still in the unknown state
+		if (ciReport.getPendingBuilds().count() > 1) {
+			final List<Build> pendingBuilds = ciReport.getPendingBuilds().collect(Collectors.toList());
+			for (int i = 0; i < pendingBuilds.size() - 1; i++) {
+				core.cancelBuild(pendingBuilds.get(i));
+			}
+		}
+
 		if (!pushBuilds.isEmpty()) {
 			// we've got a new commit, skip all triggered manual builds
 			manualBuilds.forEach(manualBuild -> ciReport.add(new Build(pullRequestID, "", Optional.of(new GitHubCheckerStatus(GitHubCheckerStatus.State.CANCELED, "TBD", CiProvider.Unknown)), manualBuild.trigger)));
