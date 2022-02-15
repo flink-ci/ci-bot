@@ -32,6 +32,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Base64;
 import java.util.Optional;
@@ -99,10 +100,16 @@ public class AzureActionsImpl implements CiActions {
 		final String projectSlug = extractProjectSlug(detailsUrl);
 		final String buildId = extractBuildId(detailsUrl);
 
+		final String buildUrl = "https://dev.azure.com/" + projectSlug + "/_apis/build/builds/" + buildId;
 		submitRequest(
-				"https://dev.azure.com/" + projectSlug + "/_apis/build/builds/" + buildId,
+				buildUrl,
 				"PATCH",
 				RequestBody.create(MediaType.get("application/json"), "{\"status\":4}"));
+		submitRequest(
+				buildUrl + "/stages/" + "CI?api-version=6.0-preview.1",
+				"PATCH",
+				RequestBody.create(MediaType.get("application/json"), "{\"state\":\"cancel\"}")
+		);
 	}
 
 	@Override
