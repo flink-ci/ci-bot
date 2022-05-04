@@ -80,8 +80,8 @@ public class Core implements AutoCloseable {
 			"ci_(?<" + REGEX_GROUP_PULL_REQUEST_ID + ">[0-9]+)_(?<" + REGEX_GROUP_COMMIT_HASH + ">[0-9a-f]+)", Pattern.DOTALL);
 
 	private static final String REGEX_GROUP_COMMAND = "command";
-	private static final Pattern REGEX_PATTERN_COMMAND_MENTION = Pattern.compile("@flinkbot run (?<" + REGEX_GROUP_COMMAND + ">[\\w ]+)", Pattern.CASE_INSENSITIVE);
 
+	private static final Pattern REGEX_PATTERN_COMMAND_MENTION = Pattern.compile("@flinkbot run (?<" + REGEX_GROUP_COMMAND + ">[\\w .#]+)", Pattern.CASE_INSENSITIVE);
 	private static final DateFormat dateFormat = new SimpleDateFormat("HH:mm:ss");
 
 	private final String observedRepository;
@@ -427,9 +427,11 @@ public class Core implements AutoCloseable {
 		final String[] command = trigger.getCommand().get().split(" ");
 
 		final AzureCommand azureCommand = new AzureCommand();
+		final TestCommand testCommand = new TestCommand();
 
 		JCommander jCommander = new JCommander();
 		jCommander.addCommand(azureCommand);
+		jCommander.addCommand(testCommand);
 
 		try {
 			jCommander.parse(command);
@@ -441,6 +443,9 @@ public class Core implements AutoCloseable {
 		switch (jCommander.getParsedCommand()) {
 			case AzureCommand.COMMAND_NAME:
 				return runManualBuild(CiProvider.Azure, ciReport, trigger, azureCommand.args);
+			case TestCommand.COMMAND_NAME:
+				runTestBuild(CiProvider.Azure, ciReport, testCommand.testPattern);
+				return Optional.empty();
 			default:
 				throw new RuntimeException("Unhandled valid command " + Arrays.toString(command) + " .");
 		}
@@ -478,6 +483,48 @@ public class Core implements AutoCloseable {
 			}
 		}
 		return Optional.empty();
+	}
+
+	private void runTestBuild(
+			CiProvider ciProvider,
+			CiReport ciReport,
+			String testPattern) {
+		Optional<Build> lastBuildOptional = ciReport.getBuilds()
+				.filter(build -> build.status.map(s -> s.getCiProvider() == ciProvider).orElse(false))
+				.reduce((first, second) -> second);
+		if (!lastBuildOptional.isPresent()) {
+			LOG.debug("Ignoring {} run command since no build was triggered yet.", ciProvider.getName());
+		} else {
+			Build lastBuild = lastBuildOptional.get();
+			if (!lastBuild.status.isPresent()) {
+				LOG.debug("Ignoring {} run command since no build was triggered yet.", ciProvider.getName());
+			} else {
+				GitHubCheckerStatus gitHubCheckerStatus = lastBuild.status.get();
+
+				final Optional<String> buildUrl = ciActions.getActionsForProvider(gitHubCheckerStatus.getCiProvider())
+						.flatMap(ciAction -> ciAction.buildTest(
+								gitHubCheckerStatus.getDetailsUrl(),
+								lastBuild.commitHash,
+								testPattern)
+						);
+				buildUrl.ifPresent(
+						url -> {
+							try {
+								final int pullRequestID = lastBuild.pullRequestID;
+								LOG.debug(
+										"Submitting new test run comment for pull request {}",
+										formatPullRequestID(pullRequestID));
+								gitHubActions.submitComment(
+										observedRepository,
+										pullRequestID,
+										String.format("Submitted test run for pattern %s: %s", testPattern, url));
+							} catch (IOException e) {
+								throw new RuntimeException(e);
+							}
+						}
+				);
+			}
+		}
 	}
 
 	public void mirrorPullRequest(int pullRequestID) throws GitException {
@@ -536,5 +583,12 @@ public class Core implements AutoCloseable {
 
 		@Parameter
 		private List<String> args = Collections.emptyList();
+	}
+
+	@Parameters(commandNames = TestCommand.COMMAND_NAME)
+	private static final class TestCommand {
+		static final String COMMAND_NAME = "test";
+		@Parameter
+		private String testPattern = null;
 	}
 }

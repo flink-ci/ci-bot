@@ -32,7 +32,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Base64;
 import java.util.Optional;
@@ -129,6 +128,47 @@ public class AzureActionsImpl implements CiActions {
 				"https://dev.azure.com/" + projectSlug + "/_apis/build/builds/" + buildId + "?retry=true",
 				"PATCH",
 				RequestBody.create(MediaType.get("application/json"), "{}"));
+	}
+
+	@Override
+	public Optional<String> buildTest(String detailsUrl, String commitId, String testPattern) {
+		LOG.debug("Triggering build for test {}.", testPattern);
+
+		final String projectSlug = extractProjectSlug(detailsUrl);
+		final String buildId = extractBuildId(detailsUrl);
+
+		Optional<Integer> definitionId = getDefinitionId(projectSlug, buildId);
+		if (!definitionId.isPresent()) {
+			LOG.error("Failed to trigger build; could not retrieve definition id.");
+			return Optional.empty();
+		}
+		return submitRequest(
+				"https://dev.azure.com/" + projectSlug + "/_apis/pipelines/" + definitionId.get() +
+						"/runs?api-version=6.0-preview.1",
+				"POST",
+				RequestBody.create(
+						MediaType.get("application/json"),
+						"{" +
+								"\"stagesToSkip\":[]," +
+								"\"resources\":" +
+								"{\"repositories\":" +
+								"{\"self\":" +
+								"{\"version\":\"" + commitId + "\"}}}," +
+								"\"variables\":" +
+								"{\"MODE\":{\"value\":\"single-test\",\"isSecret\":false}," +
+								"\"TEST_PATTERN\":{\"value\":\"" + testPattern + "\",\"isSecret\":false}}}"))
+				.flatMap(
+						response -> {
+							try {
+								final JsonNode json = OBJECT_MAPPER.readTree(response);
+								final String url = json.get("_links").get("web").get("href").asText();
+								LOG.debug("Running tests for {} with pattern {}: {}", commitId, testPattern, url);
+								return Optional.ofNullable(url);
+							} catch (IOException e) {
+								return Optional.empty();
+							}
+						}
+				);
 	}
 
 	@Override
