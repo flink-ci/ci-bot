@@ -19,7 +19,6 @@ package com.ververica.ci;
 
 import com.ververica.github.GitHubCheckerStatus;
 
-import java.util.List;
 import java.util.Optional;
 
 public interface CiActions extends AutoCloseable {
@@ -30,6 +29,8 @@ public interface CiActions extends AutoCloseable {
 	void cancelBuild(String detailsUrl);
 
 	void retryBuild(String detailsUrl, String branch);
+
+	Optional<String> buildTest(String detailsUrl, String branch, String testPattern);
 
 	default boolean supportsDirectBuildStatusRetrieval() {
 		return false;
